@@ -52,7 +52,7 @@ export default function LevelUpModal() {
               <h3 className="font-display text-base font-bold tracking-[0.1em] text-[var(--bone)]">{choice.name}</h3>
               <p className="min-h-[40px] font-body text-[13px] leading-snug text-[#b7ab97]">{choice.desc}</p>
 
-              {/* stack pips */}
+              <span className="text-xs text-[var(--gold)]">Rank {choice.stacks} → {choice.stacks + 1} / {choice.maxStacks}</span>
               <span className="flex items-center gap-1" aria-label={`Taken ${choice.stacks} of ${choice.maxStacks} times`}>
                 {Array.from({ length: choice.maxStacks }, (_, p) => (
                   <span

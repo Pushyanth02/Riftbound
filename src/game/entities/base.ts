@@ -1,7 +1,7 @@
 /* Entity base + grid collision helpers shared by all world entities. */
 import * as Phaser from 'phaser';
 import type { Dungeon } from '../dungeon/generator';
-import { TILE } from '../config';
+export { gridLineOfSight } from '../sight';
 
 export interface GridWorld {
   dungeon: Dungeon;
@@ -47,23 +47,6 @@ export function moveGrid(
   moveGridScratch.x = nx;
   moveGridScratch.y = ny;
   return moveGridScratch;
-}
-
-/** Bresenham line-of-sight over the walkable grid (pixel coordinates). */
-export function gridLineOfSight(world: GridWorld, x0: number, y0: number, x1: number, y1: number): boolean {
-  const d = world.dungeon;
-  let tx = Math.floor(x0 / TILE);
-  let ty = Math.floor(y0 / TILE);
-  const ex = Math.floor(x1 / TILE);
-  const ey = Math.floor(y1 / TILE);
-  let count = 0;
-  while ((tx !== ex || ty !== ey) && count++ < 80) {
-    if (tx !== ex) tx += Math.sign(ex - tx);
-    else if (ty !== ey) ty += Math.sign(ey - ty);
-    if (tx === ex && ty === ey) break;
-    if (d.walkable[ty * d.width + tx] !== 1) return false;
-  }
-  return true;
 }
 
 export type EntityState = 'idle' | 'active' | 'dead';

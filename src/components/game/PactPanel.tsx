@@ -3,9 +3,10 @@
 /* The Descent Pact: pre-run screen where oaths are sworn in exchange
    for a richer harvest of soul shards. */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
-import { PACTS, pactRewardMult } from '@/game/config';
+import type { WeaponId } from '@/game/types';
+import { WEAPONS, PACTS, pactRewardMult } from '@/game/config';
 import { uiClick } from './shared';
 import { Corners, DialogShell, GoldRule } from './shared';
 import { cn } from '@/lib/utils';
@@ -16,6 +17,8 @@ export default function PactPanel() {
   const cmdStart = useGameStore((s) => s.cmdStart);
   const cmdPactsBack = useGameStore((s) => s.cmdPactsBack);
   const setUi = useGameStore((s) => s.setUi);
+  const shards = useGameStore((s) => s.shards);
+  const [weapon, setWeapon] = useState<WeaponId>('sword');
   const beginRef = useRef<HTMLButtonElement>(null);
 
   /* DialogShell focuses the first button it finds (a pact card); the
@@ -38,7 +41,21 @@ export default function PactPanel() {
         </p>
         <GoldRule className="mx-auto mt-3" />
 
-        <div className="rb-scroll mt-6 grid max-h-[52vh] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          <label className="font-body text-sm text-[var(--bone)]">
+            Starting weapon
+            <select value={weapon} onChange={(event) => setWeapon(event.target.value as WeaponId)}
+              className="ml-2 border border-[var(--gold)] bg-[var(--ink)] px-2 py-1">
+              {(Object.keys(WEAPONS) as WeaponId[]).map((id) => (
+                <option key={id} value={id} disabled={shards < WEAPONS[id].shards}>
+                  {WEAPONS[id].name}{shards < WEAPONS[id].shards ? ` · ${WEAPONS[id].shards} shards required` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="font-body text-xs text-[var(--bone)]">{WEAPONS[weapon].desc}</span>
+        </div>
+        <div className="rb-scroll mt-4 grid max-h-[42vh] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
           {PACTS.map((pact) => {
             const sworn = pactSelection.includes(pact.id);
             return (
@@ -111,7 +128,7 @@ export default function PactPanel() {
               onClick={() => {
                 uiClick();
                 setUi('loading');
-                cmdStart(undefined, pactSelection);
+                cmdStart(undefined, pactSelection, weapon);
               }}
             >
               Begin the Descent

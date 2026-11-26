@@ -24,6 +24,7 @@ const W_CAP_VAR = [11, 16];
 export interface BuiltDungeon {
   floorLayer: Phaser.Tilemaps.TilemapLayer;
   wallImages: Phaser.GameObjects.Image[];
+  decals: Phaser.GameObjects.Image[];
 }
 
 export function buildDungeon(scene: Phaser.Scene, dungeon: Dungeon): BuiltDungeon {
@@ -78,6 +79,7 @@ export function buildDungeon(scene: Phaser.Scene, dungeon: Dungeon): BuiltDungeo
   floorLayer.setDepth(-100);
 
   /* ---------------- wall sprites ---------------- */
+  const decals: Phaser.GameObjects.Image[] = [];
   const wallImages: Phaser.GameObjects.Image[] = [];
   const wallFrames = new Map<number, number>();
   /* pillar bases (and the stacked cap tile above them) are rendered by the
@@ -167,6 +169,7 @@ export function buildDungeon(scene: Phaser.Scene, dungeon: Dungeon): BuiltDungeo
       } else {
         /* rubble: a ground decal, never a barrier */
         const img = scene.add.image((ob.x + 0.5) * TILE, (ob.y + 0.5) * TILE, 'tiles_terrain', DECALS[rng.between(0, DECALS.length - 1)]);
+        decals.push(img);
         img.setDepth(-90);
         img.setAlpha(0.85);
       }
@@ -184,12 +187,13 @@ export function buildDungeon(scene: Phaser.Scene, dungeon: Dungeon): BuiltDungeo
       /* keep decal tiles clear of prop/spawn hot spots by luck of the draw */
       const frame = DECALS[rng.between(0, DECALS.length - 1)];
       const img = scene.add.image((x + 0.5) * TILE, (y + 0.5) * TILE, 'tiles_terrain', frame);
+      decals.push(img);
       img.setDepth(-90);
       img.setAlpha(0.92);
     }
   }
 
-  return { floorLayer, wallImages };
+  return { floorLayer, wallImages, decals };
 }
 
 /** Room display helper: center pixel position of a room. */

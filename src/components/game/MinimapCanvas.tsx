@@ -70,8 +70,10 @@ function drawMinimap(canvas: HTMLCanvasElement, data: MinimapData, scale: number
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   /* render at a higher internal resolution in large mode instead of
      scaling the layout math (which would overflow the canvas bounds) */
-  canvas.width = Math.round(W * scale * dpr);
-  canvas.height = Math.round(H * scale * dpr);
+  const width = Math.round(W * scale * dpr);
+  const height = Math.round(H * scale * dpr);
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
   ctx.clearRect(0, 0, W, H);
 
@@ -111,6 +113,8 @@ function drawMinimap(canvas: HTMLCanvasElement, data: MinimapData, scale: number
       ctx.fillStyle = COLOR.clearedWash;
       ctx.fillRect(x, y, w, h);
     }
+    ctx.fillStyle = COLOR.boss;
+    for (const t of r.lockedTiles) ctx.fillRect(ox + t.x * s, oy + t.y * s, Math.max(1, s), Math.max(1, s));
     const cx = x + w / 2;
     const cy = y + h / 2;
 
@@ -191,6 +195,8 @@ const LEGEND: { color: string; label: string; ring?: boolean }[] = [
   { color: '#9868e8', label: 'Treasure' },
   { color: '#d9ad62', label: 'Merchant' },
   { color: '#b48cf0', label: 'Boon' },
+  { color: '#65d9d0', label: 'Shrine' },
+  { color: '#d95252', label: 'Sealed gate' },
   { color: '#e8cf9a', label: 'Exit', ring: true },
 ];
 
@@ -200,22 +206,6 @@ export default function MinimapCanvas({ data, large }: { data: MinimapData | nul
   useEffect(() => {
     if (!data || !canvasRef.current) return;
     drawMinimap(canvasRef.current, data, large ? 1.9 : 1);
-  }, [data, large]);
-
-  /* gentle pulse redraw without spamming React */
-  useEffect(() => {
-    if (!data) return;
-    let raf = 0;
-    let last = 0;
-    const loop = (t: number) => {
-      if (t - last > 220 && canvasRef.current && data) {
-        last = t;
-        drawMinimap(canvasRef.current, data, large ? 1.9 : 1);
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
   }, [data, large]);
 
   if (!data) return null;

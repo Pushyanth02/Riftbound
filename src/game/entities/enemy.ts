@@ -2,9 +2,9 @@
    floating health bars, burn/stun statuses, separation steering, the two
    encounter-room Champions, and the final Boss. */
 import * as Phaser from 'phaser';
-import { BOSS, CHAMPIONS, ELITES, ENEMIES, type ChampionDef, type EliteDef, type EnemyDef, type EnemyKind } from '../config';
+import { BOSS, TILE, CHAMPIONS, ELITES, ENEMIES, type ChampionDef, type EliteDef, type EnemyDef, type EnemyKind } from '../config';
 import type { GameContext } from '../ctx';
-import { Entity, dist2, gridLineOfSight, moveGrid } from './base';
+import { Entity, feetWalkable, dist2, gridLineOfSight, moveGrid } from './base';
 import { scaledEnemyStats } from '../dungeon/generator';
 
 export type EnemyState =
@@ -109,6 +109,29 @@ abstract class Hostile extends Entity {
     this.stateUntil = Math.max(this.stateUntil, this.ctx.now + ms);
     this.sprite.setTint(0x9fc8e8);
     this.ctx.fx.spawn('frozen_chill', this.x, this.y - 8, { scale: 0.9, depth: this.y - 1 });
+  }
+
+  protected blinkNearPlayer(distance: number): void {
+    const room = this.ctx.dungeon.rooms[this.roomId];
+    const angle = Math.random() * Math.PI * 2;
+    for (let i = 0; i < 8; i++) {
+      const direction = angle + i * Math.PI / 4;
+      const x = this.ctx.player.x + Math.cos(direction) * distance;
+      const y = this.ctx.player.y + Math.sin(direction) * distance;
+      if (x < room.x * TILE + HALF_W || x >= (room.x + room.w) * TILE - HALF_W ||
+          y < room.y * TILE + HALF_H || y >= (room.y + room.h) * TILE - HALF_H) continue;
+      if (feetWalkable(this.ctx, x, y, HALF_W, HALF_H)) {
+        this.setPos(x, y);
+        return;
+      }
+    }
+  }
+
+  quenchBurn(): number {
+    const damage = this.burnDps * Math.max(0, this.burnUntil - this.ctx.now) / 1000;
+    this.burnUntil = 0;
+    this.burnDps = 0;
+    return damage;
   }
 
   applyBurn(dps: number, ms: number): void {
@@ -240,7 +263,7 @@ abstract class Hostile extends Entity {
 
   protected moveStep(vx: number, vy: number): void {
     const moved = moveGrid(this.ctx, this.x, this.y, vx, vy, HALF_W, HALF_H);
-    const blocked = Math.abs(moved.x - this.x) < 0.01 && Math.abs(vx) > 0.01 && Math.abs(moved.y - this.y) < 0.01 && Math.abs(vy) > 0.01;
+    const blocked = Math.abs(moved.x - this.x) < 0.01 && Math.abs(moved.y - this.y) < 0.01 && (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01);
     this.setPos(moved.x, moved.y);
     if (blocked) {
       if (this.stuckTimer === 0) this.stuckTimer = this.ctx.now;
@@ -284,7 +307,7 @@ abstract class Hostile extends Entity {
 
   protected tryContactDamage(dist: number): void {
     if (this.ctx.now < this.contactReadyAt) return;
-    if (dist <= this.radius + this.ctx.player.radius + 2) {
+    if (dist <= this.radius + this.ctx.player.radius + 2 && this.ctx.player.lineOfSightFrom(this.x, this.y)) {
       this.contactReadyAt = this.ctx.now + 850;
       this.ctx.player.takeDamage(Math.max(1, Math.round(this.damage * 0.45)), this.x, this.y);
     }
@@ -830,10 +853,7 @@ export class Champion extends Enemy {
         this.ctx.play('dodge');
         this.ctx.time.delayedCall(300, () => {
           if (this.aiState === 'dead') return;
-          const ang = Math.random() * Math.PI * 2;
-          const d = Phaser.Math.Between(110, 170);
-          const moved = moveGrid(this.ctx, player.x + Math.cos(ang) * d, player.y + Math.sin(ang) * d, 0, 0, HALF_W, HALF_H);
-          this.setPos(moved.x, moved.y);
+          this.blinkNearPlayer(Phaser.Math.Between(110, 170));
           this.sprite.setAlpha(1);
           this.ctx.fx.spawn('teleport_in', this.x, this.y - 8, { scale: 1.1 });
         });
@@ -961,7 +981,7 @@ export class Boss extends Enemy {
           y: this.y - 12 + Math.sin(ang) * 26,
           angle: ang,
           speed: BOSS.boltSpeed * 1.15,
-          damage: BOSS.boltDamage,
+          damage: this.damage,
           kind: 'bossBolt',
           owner: 'enemy',
           radius: 11,
@@ -1078,7 +1098,7 @@ export class Boss extends Enemy {
               y: this.y - 12 + Math.sin(ang) * 24,
               angle: ang,
               speed: BOSS.boltSpeed * speedMult,
-              damage: BOSS.boltDamage,
+              damage: this.damage,
               kind: 'bossBolt',
               owner: 'enemy',
               radius: 11,
@@ -1104,7 +1124,7 @@ export class Boss extends Enemy {
             this.ctx.fx.spawn('shadow_spikes', rx, ry, { scale: 1.2 });
             this.ctx.play('fireImpact');
             if (this.ctx.player.withinContact(rx, ry, 58)) {
-              this.ctx.player.takeDamage(BOSS.spikeDamage, rx, ry - 40);
+              this.ctx.player.takeDamage(BOSS.spikeDamage * this.ctx.run.pactMult('enemyDmgMult'), rx, ry - 40);
             }
           });
         }
@@ -1139,7 +1159,7 @@ export class Boss extends Enemy {
               this.ctx.fx.spawn('arcane_burst', tx, ty, { scale: 1.1 });
               this.ctx.play('fireImpact');
               if (this.ctx.player.withinContact(tx, ty, 52)) {
-                this.ctx.player.takeDamage(BOSS.spikeDamage, tx, ty);
+                this.ctx.player.takeDamage(BOSS.spikeDamage * this.ctx.run.pactMult('enemyDmgMult'), tx, ty);
               }
             });
           });
@@ -1167,7 +1187,7 @@ export class Boss extends Enemy {
                 y: cy + Math.sin(a) * 130,
                 angle: a + Math.PI,
                 speed: BOSS.boltSpeed * 1.1,
-                damage: BOSS.boltDamage,
+                damage: this.damage,
                 kind: 'bossBolt',
                 owner: 'enemy',
                 radius: 11,
@@ -1184,10 +1204,7 @@ export class Boss extends Enemy {
         this.ctx.play('dodge');
         this.ctx.time.delayedCall(320, () => {
           if (this.aiState === 'dead') return;
-          const ang = Math.random() * Math.PI * 2;
-          const d = Phaser.Math.Between(120, 190);
-          const moved = moveGrid(this.ctx, player.x + Math.cos(ang) * d, player.y + Math.sin(ang) * d, 0, 0, HALF_W, HALF_H);
-          this.setPos(moved.x, moved.y);
+          this.blinkNearPlayer(Phaser.Math.Between(120, 190));
           this.sprite.setAlpha(1);
           this.ctx.fx.spawn('teleport_in', this.x, this.y - 8, { scale: 1.2 });
           this.ctx.fx.spawn('dark_mist', this.x, this.y, { scale: 1.6, duration: 1200 });

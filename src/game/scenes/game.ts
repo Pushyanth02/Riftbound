@@ -4,13 +4,14 @@
 import * as Phaser from 'phaser';
 import { bus } from '../bus';
 import { BOSS, CHAMPIONS, FLOORS, MAX_FLOOR, PATRONS, PLAYER_BASE, RELICS, TILE, UPGRADES, type EnemyKind, type RelicDef } from '../config';
-import type { BoonChoice, BoonInfo, Command, HudState, MinimapCorridor, MinimapData, MinimapRoom, PactId, PatronId, RelicInfo, RunStats, ShopWare, UiState, UpgradeChoice } from '../types';
+import type { BoonChoice, BoonInfo, Command, HudState, MinimapCorridor, MinimapData, MinimapRoom, PactId, PatronId, RelicInfo, RunStats, ShopWare, UiState, UpgradeChoice, WeaponId } from '../types';
 import { FxSystem } from '../fx';
-import { RunState, availableUpgrades, boonOffering, type SaveData } from '../run';
+import { RunState, parseSave, availableUpgrades, boonOffering, type SaveData } from '../run';
 import { Rng, randomSeed } from '../rng';
 import { gameAudio } from '../audio';
 import { generateDungeon, type Dungeon } from '../dungeon/generator';
 import { buildDungeon, type BuiltDungeon } from '../dungeon/builder';
+import { gridLineOfSight } from '../sight';
 import { Player } from '../entities/player';
 import { Boss, Champion, Enemy } from '../entities/enemy';
 import { Barrier, BoonShrine, Chest, Merchant, Pickup, Portal, Projectile, Shrine, type Interactable, type PickupKind } from '../entities/objects';
@@ -28,6 +29,8 @@ export class GameScene extends Phaser.Scene implements GameContext {
   player!: Player;
   enemies: Enemy[] = [];
   now = 0;
+  private sealedTiles = new Set<number>();
+  private debugHitboxes?: Phaser.GameObjects.Graphics;
   reducedFx = false;
 
   private state: SceneState = 'idle';
@@ -37,7 +40,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
   private interactables: Interactable[] = [];
   private barriers: Barrier[] = [];
   private roomBarriers = new Map<number, number[]>();
-  private ambientSprites: Phaser.GameObjects.Sprite[] = [];
+  private ambientSprites: Phaser.GameObjects.GameObject[] = [];
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private currentRoomId = -1;
   private hudTimer = 0;
@@ -137,13 +140,13 @@ export class GameScene extends Phaser.Scene implements GameContext {
   private handleCommand(cmd: Command): void {
     switch (cmd.type) {
       case 'start':
-        this.safeRun(() => this.newRun(cmd.seed ?? randomSeed(), cmd.pacts ?? []));
+        this.safeRun(() => this.newRun(cmd.seed ?? randomSeed(), cmd.pacts ?? [], cmd.weapon));
         break;
       case 'continue':
         this.safeRun(() => this.continueRun());
         break;
       case 'restart':
-        this.safeRun(() => this.newRun(randomSeed(), this.run?.pacts ?? []));
+        this.safeRun(() => this.newRun(randomSeed(), this.run?.pacts ?? [], this.run?.weapon));
         break;
       case 'quit':
         this.quitToMenu();
@@ -238,6 +241,16 @@ export class GameScene extends Phaser.Scene implements GameContext {
 
   private setupKeyEdges(): void {
     const kb = this.input.keyboard!;
+    if (process.env.NODE_ENV === 'development') {
+      kb.on('keydown-F3', () => {
+        if (this.debugHitboxes) {
+          this.debugHitboxes.destroy();
+          this.debugHitboxes = undefined;
+        } else {
+          this.debugHitboxes = this.add.graphics().setDepth(1e9);
+        }
+      });
+    }
     kb.on('keydown-SPACE', () => {
       if (this.state === 'running' && this.now > this.bossIntroUntil) this.player.dodge();
     });
@@ -245,7 +258,10 @@ export class GameScene extends Phaser.Scene implements GameContext {
       if (this.state === 'running') this.player.castFrostNova();
     });
     kb.on('keydown-TWO', () => {
-      if (this.state === 'running') this.player.castArcaneBolt();
+      if (this.state === 'running' && this.now >= this.bossIntroUntil) this.player.beginBoltCharge();
+    });
+    kb.on('keyup-TWO', () => {
+      if (this.state === 'running') this.player.releaseBolt();
     });
     kb.on('keydown-THREE', () => {
       if (this.state === 'running') this.player.castWhirlwind();
@@ -270,7 +286,9 @@ export class GameScene extends Phaser.Scene implements GameContext {
 
   private pauseGame(uiState: 'paused' | 'levelup' | 'inventory' | 'shop' | 'boon' = 'paused'): void {
     if (this.state === 'running') {
+      this.player.cancelCharge();
       this.state = 'paused';
+      this.time.paused = true;
       this.tweens.pauseAll();
     }
     this.emitUiState(uiState);
@@ -280,6 +298,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
   private resumeGame(): void {
     if (this.state !== 'paused') return;
     this.state = 'running';
+    this.time.paused = false;
     this.tweens.resumeAll();
     this.emitUiState('playing');
     gameAudio.setMusicMode(this.bossRef?.alive || this.championRef?.alive ? 'boss' : 'explore');
@@ -293,8 +312,8 @@ export class GameScene extends Phaser.Scene implements GameContext {
   /* run lifecycle                                                       */
   /* ------------------------------------------------------------------ */
 
-  private newRun(seed: number, pacts: PactId[]): void {
-    this.run = new RunState(seed, pacts);
+  private newRun(seed: number, pacts: PactId[], weapon: WeaponId = 'sword'): void {
+    this.run = new RunState(seed, pacts, weapon);
     this.run.potions = { health: 2, mana: 1 };
     this.startFloor(1);
     bus.emit('run:start', { seed, floor: 1 });
@@ -385,13 +404,28 @@ export class GameScene extends Phaser.Scene implements GameContext {
   }
 
   private teardownFloor(): void {
+    this.time.removeAllEvents();
+    this.time.paused = false;
+    this.tweens.resumeAll();
+    this.levelupOpen = false;
+    this.boonOpen = false;
+    this.pendingChoices = null;
+    this.pendingBoonChoices = null;
+    this.pendingBoonShrine = null;
+    this.sealedTiles.clear();
+    this.debugHitboxes?.clear();
+    this.hudRelics = [];
+    this.hudBoons = [];
     this.fx.clearAll();
     for (const e of this.enemies) e.destroy();
     for (const p of this.projectiles) p.sprite.destroy();
     for (const p of this.pickups) if (!p.collected) p.sprite.destroy();
     for (const i of this.interactables) i.destroy?.();
     for (const b of this.barriers) b.destroy();
-    for (const a of this.ambientSprites) a.destroy();
+    for (const a of this.ambientSprites) {
+      this.tweens.killTweensOf(a);
+      a.destroy();
+    }
     this.enemies = [];
     this.projectiles = [];
     this.pickups = [];
@@ -405,6 +439,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
     this.bossEmitTimer = 0;
     /* clear any stale boss/champion bar left over from the previous run */
     bus.emit('boss', null);
+    for (const decal of this.built?.decals ?? []) decal.destroy();
     this.built?.floorLayer.destroy();
     for (const w of this.built?.wallImages ?? []) w.destroy();
     this.built = null;
@@ -439,7 +474,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
         break;
       case 'shrine':
         this.interactables.push(new Shrine(this, x, y));
-        this.refreshMinimapIcon(roomId, 'shrine');
+        if (this.dungeon.rooms[roomId].type !== 'encounter') this.refreshMinimapIcon(roomId, 'shrine');
         break;
       case 'merchant':
         this.interactables.push(new Merchant(this, x, y));
@@ -450,6 +485,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
         flame.play('fx_candle_flame');
         flame.setDepth(y + 2);
         flame.setScale(1.7);
+        this.ambientSprites.push(flame);
         if (!this.reducedFx) {
           this.fx.spawn('embers', x, y - 30, { scale: 0.5, duration: 100000, depth: y + 3 });
         }
@@ -467,6 +503,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
         altar.setOrigin(0.5, 0.86);
         altar.setDepth(y);
         altar.setScale(0.85);
+        this.ambientSprites.push(altar);
         this.fx.spawn('magic_motes', x, y - 40, { scale: 0.8, duration: 100000, depth: y - 1 });
         void roomId;
         break;
@@ -476,6 +513,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
         torch.play('fx_wall_torch');
         torch.setDepth(y + TILE + 2);
         torch.setScale(1.1);
+        this.ambientSprites.push(torch);
         if (!this.reducedFx) {
           this.fx.spawn('embers', x, y - 16, { scale: 0.55, duration: 100000, depth: y + TILE + 3 });
         }
@@ -486,6 +524,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
         c.play('prop_chalice_anim');
         c.setDepth(y);
         c.setOrigin(0.5, 0.75);
+        this.ambientSprites.push(c);
         break;
       }
       case 'arch': {
@@ -493,6 +532,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
         a.setDepth(y);
         a.setOrigin(0.5, 0.9);
         a.setScale(0.75);
+        this.ambientSprites.push(a);
         break;
       }
       default:
@@ -561,7 +601,8 @@ export class GameScene extends Phaser.Scene implements GameContext {
     const tx = Math.floor(x / TILE);
     const ty = Math.floor(y / TILE);
     if (tx < 0 || ty < 0 || tx >= d.width || ty >= d.height) return false;
-    return d.walkable[ty * d.width + tx] === 1;
+    const index = ty * d.width + tx;
+    return d.walkable[index] === 1 && !this.sealedTiles.has(index);
   }
 
   spawnProjectile(spawn: ProjectileSpawn): void {
@@ -569,7 +610,18 @@ export class GameScene extends Phaser.Scene implements GameContext {
   }
 
   spawnPickup(kind: PickupKind, x: number, y: number, value = 1): void {
+    if (!this.walkableAtPx(x, y)) {
+      x = this.player.x;
+      y = this.player.y;
+    }
     this.pickups.push(new Pickup(this, kind, x, y, value));
+  }
+
+  private dropGold(x: number, y: number, total: number, piles: number): void {
+    piles = Math.min(total, piles);
+    for (let i = 0; i < piles; i++) {
+      this.spawnPickup('coin', x, y, Math.floor(total / piles) + Number(i < total % piles));
+    }
   }
 
   addXp(amount: number): void {
@@ -601,7 +653,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
     for (const e of this.enemies) {
       if (e === exclude || e.dead || !e.activated) continue;
       const d2 = (e.x - fromX) * (e.x - fromX) + (e.y - fromY) * (e.y - fromY);
-      if (d2 < bestD2) {
+      if (d2 < bestD2 && gridLineOfSight(this, fromX, fromY, e.x, e.y)) {
         bestD2 = d2;
         best = e;
       }
@@ -621,7 +673,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
       if (e.dead || !e.activated) continue;
       const r = 55 + e.radius;
       const d2 = (e.x - x) * (e.x - x) + (e.y - y) * (e.y - y);
-      if (d2 <= r * r) {
+      if (d2 <= r * r && gridLineOfSight(this, x, y, e.x, e.y)) {
         e.takeDamage(damage, { sourceX: x, sourceY: y, knockback: 80, crit: false });
       }
     }
@@ -635,8 +687,8 @@ export class GameScene extends Phaser.Scene implements GameContext {
   }
 
   summonEcho(x: number, y: number): void {
-    if (!this.walkableAtPx(x, y)) return;
-    const alive = this.enemies.filter((e) => e.alive && !e.isBoss && !e.isChampion).length;
+    if (!this.walkableAtPx(x, y) || this.roomOfPoint(x, y) !== this.currentRoomId) return;
+    const alive = this.enemies.filter((e) => e.alive && e.roomId === this.currentRoomId && !e.isBoss && !e.isChampion).length;
     if (alive >= 7) return;
     const echo = new Enemy(this, BOSS.summonKind, x, y);
     echo.roomId = this.roomOfPoint(x, y);
@@ -664,7 +716,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
     if (enemy.isBoss) {
       this.addXp(BOSS.xp);
       const gold = Phaser.Math.Between(BOSS.gold[0], BOSS.gold[1]);
-      for (let i = 0; i < 8; i++) this.spawnPickup('coin', enemy.x, enemy.y, Math.ceil(gold / 8));
+      this.dropGold(enemy.x, enemy.y, gold, 8);
       for (let i = 0; i < BOSS.souls; i++) this.spawnPickup('soul', enemy.x + Phaser.Math.Between(-40, 40), enemy.y + Phaser.Math.Between(-30, 30), 1);
       /* guaranteed relic */
       const pool = RELICS.filter((r) => !this.run.relics.some((own) => own.id === r.id));
@@ -691,7 +743,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
       const cdef = champ.cdef;
       this.addXp(cdef.xp);
       const gold = Phaser.Math.Between(cdef.gold[0], cdef.gold[1]);
-      for (let i = 0; i < 6; i++) this.spawnPickup('coin', enemy.x, enemy.y, Math.ceil(gold / 6));
+      this.dropGold(enemy.x, enemy.y, gold, 6);
       for (let i = 0; i < cdef.souls; i++) this.spawnPickup('soul', enemy.x + Phaser.Math.Between(-36, 36), enemy.y + Phaser.Math.Between(-26, 26), 1);
       this.spawnPickup('potion-h', enemy.x - 30, enemy.y + 20, 1);
       const pool = RELICS.filter((r) => !this.run.relics.some((own) => own.id === r.id));
@@ -708,7 +760,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
       this.addXp(def.xp);
       const gold = Phaser.Math.Between(def.gold[0], def.gold[1]);
       const coins = Math.max(1, Math.round(gold / 3));
-      for (let i = 0; i < coins; i++) this.spawnPickup('coin', enemy.x, enemy.y, Math.ceil(gold / coins));
+      this.dropGold(enemy.x, enemy.y, gold, coins);
       const roll = Math.random();
       if (elite) {
         /* elite bounties always pay souls and often a potion */
@@ -795,12 +847,24 @@ export class GameScene extends Phaser.Scene implements GameContext {
   }
 
   private lockRoom(roomId: number): void {
+    const room = this.dungeon.rooms[roomId];
+    // Clear the threshold before sealing tiles under the trailing edge of the feet.
+    this.player.setPos(
+      Phaser.Math.Clamp(this.player.x, room.x * TILE + 12, (room.x + room.w) * TILE - 12),
+      Phaser.Math.Clamp(this.player.y, room.y * TILE + 8, (room.y + room.h) * TILE - 8),
+    );
+    for (const gate of this.dungeon.rooms[roomId].gates) {
+      for (const tile of gate.tiles) this.sealedTiles.add(tile.y * this.dungeon.width + tile.x);
+    }
     const indices = this.roomBarriers.get(roomId) ?? [];
     for (const i of indices) this.barriers[i]?.lock();
     this.play('doorOpen');
   }
 
   private unlockRoom(roomId: number): void {
+    for (const gate of this.dungeon.rooms[roomId].gates) {
+      for (const tile of gate.tiles) this.sealedTiles.delete(tile.y * this.dungeon.width + tile.x);
+    }
     const indices = this.roomBarriers.get(roomId) ?? [];
     for (const i of indices) this.barriers[i]?.unlock();
   }
@@ -976,15 +1040,15 @@ export class GameScene extends Phaser.Scene implements GameContext {
   /* ------------------------------------------------------------------ */
 
   update(_time: number, delta: number): void {
-    this.now = _time;
     if (this.state !== 'running' || !this.dungeon) {
       if (this.bossRef && !this.bossRef.alive) this.bossRef = null;
       return;
     }
     /* hit-stop freeze */
-    if (this.now < this.fx.hitstopUntil) return;
+    if (_time < this.fx.hitstopUntil) return;
 
     const dt = Math.min(delta, 50);
+    this.now += dt;
     this.run.timeMs += dt;
     const intro = this.now < this.bossIntroUntil;
 
@@ -993,6 +1057,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
       this.player.moveX = (this.keys.D.isDown ? 1 : 0) - (this.keys.A.isDown ? 1 : 0);
       this.player.moveY = (this.keys.S.isDown ? 1 : 0) - (this.keys.W.isDown ? 1 : 0);
       const pointer = this.input.activePointer;
+      pointer.updateWorldPoint(this.cameras.main);
       this.player.aimX = pointer.worldX;
       this.player.aimY = pointer.worldY;
     } else {
@@ -1001,6 +1066,17 @@ export class GameScene extends Phaser.Scene implements GameContext {
     }
 
     this.player.update(dt);
+    if (this.debugHitboxes) {
+      const gfx = this.debugHitboxes.clear();
+      gfx.lineStyle(1, 0x65d9d0).strokeCircle(this.player.x, this.player.y, this.player.radius);
+      gfx.strokeRect(this.player.x - 11, this.player.y - 7, 22, 14);
+      gfx.lineStyle(1, 0xd95252);
+      for (const e of this.enemies) if (e.activated && !e.dead) gfx.strokeCircle(e.x, e.y, e.radius);
+      for (const p of this.projectiles) gfx.strokeCircle(p.x, p.y, p.radius);
+      for (const tile of this.sealedTiles) {
+        gfx.strokeRect(tile % this.dungeon.width * TILE, Math.floor(tile / this.dungeon.width) * TILE, TILE, TILE);
+      }
+    }
 
     /* enemies: activated ones tick fully */
     for (const e of this.enemies) {
@@ -1097,7 +1173,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
       const dx = it.x - this.player.x;
       const dy = it.y - this.player.y;
       const d2 = dx * dx + dy * dy;
-      if (d2 <= bestD2) {
+      if (d2 <= bestD2 && this.player.lineOfSightFrom(it.x, it.y)) {
         bestD2 = d2;
         best = it;
       }
@@ -1191,7 +1267,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
       return;
     }
     this.levelupOpen = true;
-    const rng = new Rng(randomSeed() ^ this.run.level);
+    const rng = new Rng(this.run.seed ^ (this.run.level - this.run.pendingLevelUps));
     const choices: UpgradeChoice[] = rng
       .shuffle(pool)
       .slice(0, Math.min(3, pool.length))
@@ -1210,7 +1286,11 @@ export class GameScene extends Phaser.Scene implements GameContext {
     if (!this.levelupOpen) return;
     const current = this.pendingChoices;
     if (current && index >= 0 && index < current.length) {
+      this.run.hp = this.player.hp;
+      this.run.mana = this.player.mana;
       this.run.addUpgrade(current[index].id);
+      this.player.hp = this.run.hp;
+      this.player.mana = this.run.mana;
       this.run.pendingLevelUps--;
       this.toast(`${current[index].name} accepted`, current[index].icon);
       this.emitHud();
@@ -1239,7 +1319,15 @@ export class GameScene extends Phaser.Scene implements GameContext {
     if (this.hudBoons.length !== this.run.boons.length) {
       this.hudBoons = this.run.boons.map((b) => ({ id: b.id, name: b.name, desc: b.desc, icon: b.icon, patron: b.patron, rarity: b.rarity }));
     }
+    const room = this.dungeon.rooms[this.currentRoomId];
+    const enemiesLeft = this.sealedTiles.size ? this.enemies.reduce((n, e) =>
+      n + Number(e.alive && e.roomId === this.currentRoomId), 0) : 0;
     const hud: HudState = {
+      boltCharge: this.player.boltCharge,
+      objective: enemiesLeft ? `Clear the chamber · ${enemiesLeft} remain` :
+        room?.type === 'rest' ? 'Touch the healing shrine' :
+        this.run.floor < MAX_FLOOR ? 'Find the descent' :
+        this.dungeon.rooms[this.dungeon.bossRoom].cleared ? 'Enter the seal' : 'Find the Fallen Necromancer',
       hp: this.player.hp,
       maxHp: this.run.stats.maxHp,
       mana: this.player.mana,
@@ -1269,7 +1357,8 @@ export class GameScene extends Phaser.Scene implements GameContext {
      arrays (and their identities) can be reused as-is. */
     let fp = this.currentRoomId;
     for (const r of this.dungeon.rooms) {
-      fp = fp * 31 + (r.discovered ? 1 : 0) + (r.cleared ? 2 : 0) + (r.icon ? 7 : 0);
+      fp = (Math.imul(fp, 31) + Number(r.discovered) + 2 * Number(r.cleared) +
+        4 * ([null, 'merchant', 'champion', 'boon', 'shrine'].indexOf(r.icon ?? null) + 1)) | 0;
     }
     if (fp !== this.minimapFp || this.minimapFloorFor !== this.dungeon) {
       this.minimapFp = fp;
@@ -1284,13 +1373,14 @@ export class GameScene extends Phaser.Scene implements GameContext {
         cleared: r.cleared,
         current: r.id === this.currentRoomId,
         icon: r.icon ?? null,
+        lockedTiles: r.gates.flatMap((gate) => gate.tiles.filter((t) => this.sealedTiles.has(t.y * this.dungeon.width + t.x))),
       }));
       this.minimapCorridors = this.dungeon.corridors.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h, roomA: c.roomA, roomB: c.roomB }));
     }
     const data: MinimapData = {
       rooms: this.minimapRooms,
       corridors: this.minimapCorridors,
-      player: { x: this.player.x / TILE, y: this.player.y / TILE, heading: this.player.heading },
+      player: { x: this.player.x / TILE, y: this.player.y / TILE, heading: this.player.aimAngle },
       width: this.dungeon.width,
       height: this.dungeon.height,
     };
@@ -1318,7 +1408,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
     try {
       const raw = window.localStorage.getItem(SAVE_KEY);
       if (!raw) return null;
-      return JSON.parse(raw) as SaveData;
+      return parseSave(raw);
     } catch {
       return null;
     }

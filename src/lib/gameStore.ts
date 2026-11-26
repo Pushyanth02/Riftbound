@@ -1,12 +1,15 @@
 'use client';
 /* React-side game store: mirrors game state from the bus and emits commands. */
 import { create } from 'zustand';
+import { WEAPONS } from '@/game/config';
+import { parseSave } from '@/game/run';
 import { bus } from '@/game/bus';
 import type {
   BoonChoice,
   BossState,
   HudState,
   MinimapData,
+  WeaponId,
   PactId,
   PatronId,
   RunStats,
@@ -77,15 +80,12 @@ function loadShards(): number {
   return 0;
 }
 
-export function readSave(): { seed: number; floor: number } | null {
+export function readSave(): SaveInfo | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { seed?: number; floor?: number };
-    if (typeof parsed.seed === 'number' && typeof parsed.floor === 'number' && parsed.floor > 0) {
-      return { seed: parsed.seed, floor: parsed.floor };
-    }
+    return parseSave(raw);
   } catch {
     /* ignore */
   }
@@ -145,7 +145,7 @@ interface GameStore {
   applySettings: (s: Partial<Settings>) => void;
 
   /* command emitters */
-  cmdStart: (seed?: number, pacts?: PactId[]) => void;
+  cmdStart: (seed?: number, pacts?: PactId[], weapon?: WeaponId) => void;
   cmdContinue: () => void;
   cmdRestart: () => void;
   cmdQuit: () => void;
@@ -252,10 +252,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     bus.command({ type: 'settings', settings });
   },
 
-  cmdStart: (seed, pacts) => {
+  cmdStart: (seed, pacts, weapon) => {
     /* a fresh run begins unsworn; the command carries the chosen oaths */
     set({ pactSelection: [] });
-    bus.command({ type: 'start', seed, pacts });
+    bus.command({ type: 'start', seed, pacts, weapon: weapon && WEAPONS[weapon].shards <= get().shards ? weapon : 'sword' });
   },
   cmdContinue: () => bus.command({ type: 'continue' }),
   cmdRestart: () => bus.command({ type: 'restart' }),
@@ -339,15 +339,7 @@ export function initBusBridge(): void {
 
   const save = readSave();
   if (save) {
-    try {
-      const raw = window.localStorage.getItem(SAVE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as SaveInfo;
-        bus.emit('save:exists', { exists: true, info: parsed });
-      }
-    } catch {
-      /* ignore */
-    }
+    bus.emit('save:exists', { exists: true, info: save });
   } else {
     bus.emit('save:exists', { exists: false });
   }

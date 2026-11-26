@@ -16,7 +16,8 @@ export type UiState =
   | 'dead'
   | 'victory';
 
-export type RoomType = 'start' | 'combat' | 'treasure' | 'encounter' | 'boss' | 'exit';
+export type WeaponId = 'sword' | 'knife' | 'cleaver';
+export type RoomType = 'start' | 'combat' | 'rest' | 'treasure' | 'encounter' | 'boss' | 'exit';
 
 export type UpgradeId =
   | 'maxhp'
@@ -84,6 +85,8 @@ export interface PactInfo {
 /* ------------------------------ HUD ------------------------------ */
 
 export interface HudState {
+  objective: string;
+  boltCharge: number;
   hp: number;
   maxHp: number;
   mana: number;
@@ -131,6 +134,7 @@ export interface MinimapRoom {
   discovered: boolean;
   cleared: boolean;
   current: boolean;
+  lockedTiles: { x: number; y: number }[];
   /** marker for special contents (only meaningful when discovered) */
   icon?: 'merchant' | 'champion' | 'boon' | 'shrine' | null;
 }
@@ -231,7 +235,7 @@ export interface BusEvents {
 export type BusEventKey = keyof BusEvents;
 
 export type Command =
-  | { type: 'start'; seed?: number; pacts?: PactId[] }
+  | { type: 'start'; seed?: number; pacts?: PactId[]; weapon?: WeaponId }
   | { type: 'continue' }
   | { type: 'restart' }
   | { type: 'quit' }

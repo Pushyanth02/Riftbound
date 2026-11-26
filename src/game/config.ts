@@ -1,5 +1,11 @@
 /* RIFTBOUND - centralized, data-driven game configuration. */
-import type { BoonInfo, PactId, PactInfo, RelicInfo, UpgradeChoice, UpgradeId } from './types';
+import type { WeaponId, BoonInfo, PactId, PactInfo, RelicInfo, UpgradeChoice, UpgradeId } from './types';
+
+export const WEAPONS = {
+  sword: { name: 'Warden Sword', shards: 0, damage: 1, reach: 1, tempo: 1, arc: 1, desc: 'Balanced reach and recovery.' },
+  knife: { name: 'Vigil Knife', shards: 12, damage: 0.8, reach: 0.8, tempo: 0.72, arc: 0.85, desc: 'Short, quick cuts. More chances to trigger critical effects.' },
+  cleaver: { name: 'Ossuary Cleaver', shards: 30, damage: 1.45, reach: 1.12, tempo: 1.35, arc: 1.2, desc: 'Wide, heavy swings with a longer recovery.' },
+} satisfies Record<WeaponId, { name: string; shards: number; damage: number; reach: number; tempo: number; arc: number; desc: string }>;
 
 export const TILE = 32;
 export const ZOOM_MIN = 2;
@@ -19,6 +25,14 @@ export const PALETTE = {
 /* ------------------------------ player ------------------------------ */
 
 export const PLAYER_BASE = {
+  attackBufferMs: 160,
+  comboResetMs: 600,
+  boltChargeMs: 650,
+  boltChargeMana: 6,
+  boltChargeDamage: 1.65,
+  accelerationMs: 65,
+  brakingMs: 45,
+  quenchedBurnFraction: 0.5,
   maxHp: 100,
   maxMana: 60,
   moveSpeed: 150, // px/s world space
@@ -153,7 +167,7 @@ export const PATRONS: Record<import('./types').PatronId, { name: PatronName; col
 
 export const BOONS: BoonDef[] = [
   /* -------- ember -------- */
-  { id: 'ember_burn', patron: 'ember', rarity: 'common', name: 'Kindled Wrath', desc: 'Fireballs ignite foes, searing them for 8 damage per second.', icon: '/assets/icons/fireball.png', effect: { fireBurnDps: 8 } },
+  { id: 'ember_burn', patron: 'ember', rarity: 'common', name: 'Kindled Wrath', desc: 'Fireballs ignite foes for 8 damage per second. Frost Nova consumes the burn for half its remaining damage.', icon: '/assets/icons/fireball.png', effect: { fireBurnDps: 8 } },
   { id: 'ember_fan', patron: 'ember', rarity: 'rare', name: 'Twin Cinders', desc: 'Each Fireball cast looses one extra searing missile.', icon: '/assets/icons/fireball.png', effect: { fireExtraProj: 1 } },
   { id: 'ember_blast', patron: 'ember', rarity: 'epic', name: 'Choir Detonation', desc: 'Critical strikes burst into flame, dealing 40% damage to nearby foes.', icon: '/assets/icons/gem_red.png', effect: { critBlastPct: 0.4 } },
   { id: 'ember_skin', patron: 'ember', rarity: 'common', name: 'Ashen Hide', desc: 'While below 35% health, take 15% less damage.', icon: '/assets/icons/relic_shield.png', effect: { lowHpDamageCut: 0.15 } },
@@ -382,6 +396,7 @@ export const MAX_FLOOR = 3;
 export const ROOM_NAMES = {
   start: ['The First Breach'],
   combat: ['Collapsed Gallery', 'Wormeaten Hall', 'The Dry Cistern', 'Broken Colonnade', 'Ossuary Walk', 'The Rubble Yard'],
+  rest: ['The Candle Vigil', 'Chapel of Ash'],
   treasure: ['Forgotten Reliquary', 'The Locked Vault', 'Chapel of Offerings'],
   encounter: ['Whispering Alcove', 'The Watcher\u2019s Rest', 'Hollowed Shrine'],
   boss: ['Chamber of the Seal'],
@@ -403,7 +418,7 @@ export const CONTROLS: { keys: string; action: string }[] = [
   { keys: 'Right Click', action: 'Fireball' },
   { keys: 'Space', action: 'Dodge roll' },
   { keys: '1', action: 'Frost Nova' },
-  { keys: '2', action: 'Arcane Bolt' },
+  { keys: '2', action: 'Tap for Arcane Bolt. Hold for a piercing cast (+6 mana).' },
   { keys: '3', action: 'Whirlwind' },
   { keys: 'Q', action: 'Drink health potion' },
   { keys: 'F', action: 'Drink mana potion' },

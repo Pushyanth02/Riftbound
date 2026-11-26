@@ -1,6 +1,6 @@
 /* The player hero: movement, dodge, melee combo, spells, boons, damage, death. */
 import * as Phaser from 'phaser';
-import { PLAYER_BASE } from '../config';
+import { PLAYER_BASE, WEAPONS } from '../config';
 import type { GameContext } from '../ctx';
 import { Entity, dist2, gridLineOfSight, moveGrid } from './base';
 import type { Enemy } from './enemy';
@@ -34,10 +34,13 @@ export class Player extends Entity {
   /* melee */
   private meleeReadyAt = 0;
   private comboIndex = 0;
+  private velocityX = 0;
+  private velocityY = 0;
   private atkPhase: AtkPhase = 'none';
   private atkPhaseUntil = 0;
   private atkHitSet = new Set<Enemy>();
-  private queuedAttack = false;
+  private bufferedUntil = -1;
+  private swingAngle = 0;
 
   /* cooldowns (timestamps) */
   private fireballReadyAt = 0;
@@ -77,9 +80,8 @@ export class Player extends Entity {
 
   queueMelee(): void {
     if (this.dying) return;
-    if (this.ctx.now < this.meleeReadyAt || this.ctx.now < this.dodgeUntil) return;
-    if (this.atkPhase !== 'none') {
-      this.queuedAttack = true;
+    if (this.atkPhase !== 'none' || this.ctx.now < Math.max(this.meleeReadyAt, this.dodgeUntil)) {
+      this.bufferedUntil = this.ctx.now + PLAYER_BASE.attackBufferMs;
       return;
     }
     this.startMelee();
@@ -87,9 +89,11 @@ export class Player extends Entity {
 
   private startMelee(): void {
     const stats = this.ctx.run.stats;
+    if (this.ctx.now > this.meleeReadyAt + PLAYER_BASE.comboResetMs) this.comboIndex = 0;
+    this.bufferedUntil = -1;
     this.comboIndex = (this.comboIndex % 3) + 1;
     this.atkPhase = 'windup';
-    this.atkPhaseUntil = this.ctx.now + 70;
+    this.atkPhaseUntil = this.ctx.now + 70 * WEAPONS[this.ctx.run.weapon].tempo;
     this.atkHitSet.clear();
     this.meleeReadyAt = this.ctx.now + stats.meleeCooldown;
     this.sprite.play(this.comboIndex === 3 ? 'player_atk3' : this.comboIndex === 2 ? 'player_atk2' : 'player_atk1');
@@ -146,11 +150,12 @@ export class Player extends Entity {
       if (e.dead || !e.activated) continue;
       const d2 = dist2(this.x, this.y, e.x, e.y);
       const r = stats.frostRadius + e.radius;
-      if (d2 <= r * r) {
+      if (d2 <= r * r && this.lineOfSightFrom(e.x, e.y)) {
         hits++;
         e.applySlow(PLAYER_BASE.frostSlowFactor, PLAYER_BASE.frostSlowMs);
         if (stats.frostFreezeMs > 0) e.applyStun(stats.frostFreezeMs);
-        e.takeDamage(stats.frostDamage, { sourceX: this.x, sourceY: this.y, knockback: 40, crit: false });
+        const quench = e.quenchBurn() * PLAYER_BASE.quenchedBurnFraction;
+        e.takeDamage(stats.frostDamage + quench, { sourceX: this.x, sourceY: this.y, knockback: 40, crit: false });
       }
     }
     /* Deep Stillness: refund mana per foe struck */
@@ -161,11 +166,35 @@ export class Player extends Entity {
     this.ctx.play('frost');
   }
 
-  castArcaneBolt(): void {
+  private chargeStart: number | null = null;
+
+  beginBoltCharge(): void {
+    if (this.dying || this.chargeStart !== null || this.ctx.now < this.boltReadyAt ||
+        this.ctx.now < this.dodgeUntil || this.mana < this.ctx.run.stats.boltMana) return;
+    this.chargeStart = this.ctx.now;
+  }
+
+  get boltCharge(): number {
+    return this.chargeStart === null ? 0 : Math.min(1, (this.ctx.now - this.chargeStart) / PLAYER_BASE.boltChargeMs);
+  }
+
+  cancelCharge(): void {
+    this.chargeStart = null;
+  }
+
+  releaseBolt(): void {
+    if (this.chargeStart === null) return;
+    const charged = this.boltCharge >= 1 && this.mana >= this.ctx.run.stats.boltMana + PLAYER_BASE.boltChargeMana;
+    this.cancelCharge();
+    this.castArcaneBolt(charged);
+  }
+
+  castArcaneBolt(charged = false): void {
     if (this.dying) return;
     const stats = this.ctx.run.stats;
     if (this.ctx.now < this.boltReadyAt || this.mana < stats.boltMana) return;
-    this.mana -= stats.boltMana;
+    this.cancelCharge();
+    this.mana -= stats.boltMana + (charged ? PLAYER_BASE.boltChargeMana : 0);
     this.boltReadyAt = this.ctx.now + stats.boltCooldown;
     const base = this.aimAngle;
     const count = stats.boltCount;
@@ -177,11 +206,11 @@ export class Player extends Entity {
         y: this.y - 8 + Math.sin(angle) * 14,
         angle,
         speed: PLAYER_BASE.boltSpeed,
-        damage: stats.boltDamage,
+        damage: stats.boltDamage * (charged ? PLAYER_BASE.boltChargeDamage : 1),
         kind: 'bolt',
         owner: 'player',
         radius: 9,
-        pierce: stats.boltPierce,
+        pierce: stats.boltPierce + Number(charged),
       });
     }
     this.faceByAngle(base);
@@ -201,7 +230,7 @@ export class Player extends Entity {
       if (e.dead || !e.activated) continue;
       const d2 = dist2(this.x, this.y, e.x, e.y);
       const r = stats.whirlRadius + e.radius;
-      if (d2 <= r * r) {
+      if (d2 <= r * r && this.lineOfSightFrom(e.x, e.y)) {
         const crit = Math.random() < stats.critChance;
         let damage = stats.whirlDamage * (crit ? stats.critMult : 1);
         if (e.isBoss || e.isChampion) damage *= stats.bossDmgMult;
@@ -239,7 +268,11 @@ export class Player extends Entity {
     this.dodgeVY = (dy / len) * PLAYER_BASE.dodgeSpeed;
     this.dodgeUntil = this.ctx.now + PLAYER_BASE.dodgeMs;
     this.dodgeReadyAt = this.dodgeUntil + stats.dodgeCooldown;
+    this.bufferedUntil = -1;
     this.atkPhase = 'none';
+    this.cancelCharge();
+    this.velocityX = 0;
+    this.velocityY = 0;
     this.dodgeChillAt = 0;
     this.ctx.fx.spawn('blink_dash', this.x, this.y - 6, {
       angle: Phaser.Math.RadToDeg(Math.atan2(this.dodgeVY, this.dodgeVX)),
@@ -279,6 +312,7 @@ export class Player extends Entity {
 
   takeDamage(amount: number, sourceX: number, sourceY: number): void {
     if (this.invulnerable) return;
+    this.cancelCharge();
     const stats = this.ctx.run.stats;
     let armor = stats.armor + (this.ctx.now < this.tempArmorUntil ? this.tempArmor : 0);
     let dealt = Math.max(1, amount - armor);
@@ -355,7 +389,7 @@ export class Player extends Entity {
         for (const e of this.ctx.enemies) {
           if (e.dead || !e.activated) continue;
           const r = 42 + e.radius;
-          if (dist2(this.x, this.y, e.x, e.y) <= r * r) {
+          if (dist2(this.x, this.y, e.x, e.y) <= r * r && this.lineOfSightFrom(e.x, e.y)) {
             e.applySlow(0.5, stats.dodgeChillMs);
           }
         }
@@ -386,10 +420,17 @@ export class Player extends Entity {
       vy /= len;
       this.heading = Math.atan2(vy, vx);
     }
-    this.moving = len > 0;
+    const response = len > 0 ? PLAYER_BASE.accelerationMs : PLAYER_BASE.brakingMs;
+    const targetX = vx * stats.moveSpeed;
+    const targetY = vy * stats.moveSpeed;
+    const difference = Math.hypot(targetX - this.velocityX, targetY - this.velocityY);
+    const fraction = difference ? Math.min(1, stats.moveSpeed * dt / response / difference) : 1;
+    this.velocityX += (targetX - this.velocityX) * fraction;
+    this.velocityY += (targetY - this.velocityY) * fraction;
+    this.moving = this.velocityX !== 0 || this.velocityY !== 0;
     if (this.moving) {
-      const step = (stats.moveSpeed * dt) / 1000;
-      const moved = moveGrid(this.ctx, this.x, this.y, vx * step, vy * step, BODY_HALF_W, BODY_HALF_H);
+      const step = dt / 1000;
+      const moved = moveGrid(this.ctx, this.x, this.y, this.velocityX * step, this.velocityY * step, BODY_HALF_W, BODY_HALF_H);
       this.setPos(moved.x, moved.y);
     }
 
@@ -405,43 +446,44 @@ export class Player extends Entity {
   }
 
   private updateMeleePhase(): void {
-    if (this.atkPhase === 'none') return;
     const now = this.ctx.now;
+    if (this.atkPhase === 'none') {
+      if (now <= this.bufferedUntil && now >= Math.max(this.meleeReadyAt, this.dodgeUntil)) this.startMelee();
+      return;
+    }
+    if (this.atkPhase === 'active' && now < this.atkPhaseUntil) this.resolveMeleeHits();
     if (now < this.atkPhaseUntil) return;
     if (this.atkPhase === 'windup') {
       this.atkPhase = 'active';
-      this.atkPhaseUntil = now + 170;
+      this.atkPhaseUntil = now + 170 * WEAPONS[this.ctx.run.weapon].tempo;
+      this.swingAngle = this.aimAngle;
+      this.resolveMeleeHits();
       /* deploy the slash VFX along the aim */
       const angle = this.aimAngle;
       const isThird = this.comboIndex === 3;
       const fxKey = isThird ? 'greatsword' : 'melee_combo';
-      const reach = PLAYER_BASE.meleeRange * (isThird ? 1.25 : 1);
+      const reach = PLAYER_BASE.meleeRange * WEAPONS[this.ctx.run.weapon].reach * (isThird ? 1.25 : 1);
       this.ctx.fx.spawn(fxKey, this.x + Math.cos(angle) * reach * 0.55, this.y - 8 + Math.sin(angle) * reach * 0.55, {
         angle: Phaser.Math.RadToDeg(angle),
-        scale: isThird ? 1.35 : 1.05,
-        flipY: Math.abs(Phaser.Math.Angle.Wrap(Phaser.Math.RadToDeg(angle))) > 90,
+        scale: (isThird ? 1.35 : 1.05) * WEAPONS[this.ctx.run.weapon].reach,
+        flipY: Math.abs(Phaser.Math.Angle.Wrap(angle)) > Math.PI / 2,
         depth: this.y + 2,
       });
       this.ctx.play('swing');
     } else if (this.atkPhase === 'active') {
-      this.resolveMeleeHits();
       this.atkPhase = 'recover';
-      this.atkPhaseUntil = now + 90;
+      this.atkPhaseUntil = now + 90 * WEAPONS[this.ctx.run.weapon].tempo;
     } else {
       this.atkPhase = 'none';
-      if (this.queuedAttack) {
-        this.queuedAttack = false;
-        this.startMelee();
-      }
     }
   }
 
   private resolveMeleeHits(): void {
     const stats = this.ctx.run.stats;
     const isThird = this.comboIndex === 3;
-    const reach = PLAYER_BASE.meleeRange * (isThird ? 1.25 : 1);
-    const arc = Phaser.Math.DegToRad(PLAYER_BASE.meleeArcDeg * (isThird ? 1.3 : 1));
-    const aim = this.aimAngle;
+    const reach = PLAYER_BASE.meleeRange * WEAPONS[this.ctx.run.weapon].reach * (isThird ? 1.25 : 1);
+    const arc = Phaser.Math.DegToRad(PLAYER_BASE.meleeArcDeg * WEAPONS[this.ctx.run.weapon].arc * (isThird ? 1.3 : 1));
+    const aim = this.swingAngle;
     for (const e of this.ctx.enemies) {
       if (e.dead || !e.activated || this.atkHitSet.has(e)) continue;
       const dx = e.x - this.x;
@@ -449,7 +491,7 @@ export class Player extends Entity {
       const d = Math.hypot(dx, dy);
       if (d > reach + e.radius) continue;
       const diff = Math.abs(Phaser.Math.Angle.Wrap(Math.atan2(dy, dx) - aim));
-      if (diff > arc / 2) continue;
+      if (diff > arc / 2 || !this.lineOfSightFrom(e.x, e.y)) continue;
       this.atkHitSet.add(e);
       const crit = Math.random() < stats.critChance;
       const comboMult = isThird ? 1.35 : 1;
@@ -472,7 +514,7 @@ export class Player extends Entity {
   withinContact(x: number, y: number, radius: number): boolean {
     const d2 = dist2(this.x, this.y, x, y);
     const r = radius + this.radius;
-    return d2 <= r * r;
+    return d2 <= r * r && this.lineOfSightFrom(x, y);
   }
 
   /** Remaining cooldown fractions (0 = ready) for the HUD. */

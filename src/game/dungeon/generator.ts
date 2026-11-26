@@ -86,14 +86,8 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
   const wanted = rng.int(theme.roomCount[0], theme.roomCount[1]);
   const otherSlots = rng.shuffle(slots.filter((s) => !(s.col === startSlot.col && s.row === startSlot.row) && !(s.col === bossSlot.col && s.row === bossSlot.row)));
   /* always at least 5 rooms: start + boss + three others */
-  const chosen = [startSlot, bossSlot, ...otherSlots.slice(0, Math.max(3, wanted - 2))];
-  if (forceAll) {
-    while (chosen.length < 5) {
-      const next = otherSlots[chosen.length - 2];
-      if (!next) break;
-      chosen.push(next);
-    }
-  }
+  const chosen = forceAll ? [startSlot, bossSlot, ...otherSlots] :
+    [startSlot, bossSlot, ...otherSlots.slice(0, Math.max(3, wanted - 2))];
   const slotIndex = new Set(chosen.map((s) => s.row * GRID_COLS + s.col));
 
   /* ---- room rects ---- */
@@ -142,6 +136,7 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
       [1, 0],
       [0, 1],
     ] as const) {
+      if (r.col + dc >= GRID_COLS || r.row + dr >= GRID_ROWS) continue;
       const nid = (r.row + dr) * GRID_COLS + (r.col + dc);
       if (slotIndex.has(nid)) {
         edges.push({ a: r.row * GRID_COLS + r.col, b: nid, weight: rng.next() });
@@ -166,6 +161,7 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
   for (const e of sortedEdges) {
     if (union(e.a, e.b)) treeEdges.push(e);
   }
+  if (treeEdges.length !== chosen.length - 1) return null;
   const extraPool = edges.filter((e) => !treeEdges.includes(e));
   if (extraPool.length > 0) treeEdges.push(rng.pick(extraPool));
 
@@ -190,7 +186,7 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
       const exitY = Math.min(Math.max(b.cy, a.y + 2), a.y + a.h - 3);
       const entryX = Math.min(Math.max(a.cx, b.x + 2), b.x + b.w - 3);
       const hx0 = a.x + a.w - 2;
-      const hx1 = b.x + 1;
+      const hx1 = entryX;
       const hy = exitY - CORRIDOR_HALF;
       corridors.push({ x: hx0, y: hy, w: hx1 - hx0 + 1, h: 3, roomA: a.id, roomB: b.id });
       const vy0 = Math.min(exitY, b.cy) - CORRIDOR_HALF;
@@ -203,7 +199,7 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
       const exitX = Math.min(Math.max(b.cx, a.x + 2), a.x + a.w - 3);
       const entryY = Math.min(Math.max(a.cy, b.y + 2), b.y + b.h - 3);
       const vy0 = a.y + a.h - 2;
-      const vy1 = b.y + 1;
+      const vy1 = entryY;
       const vx = exitX - CORRIDOR_HALF;
       corridors.push({ x: vx, y: vy0, w: 3, h: vy1 - vy0 + 1, roomA: a.id, roomB: b.id });
       const hx0 = Math.min(exitX, b.cx) - CORRIDOR_HALF;
@@ -238,6 +234,7 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
   const free = rooms.filter((r) => r.type === 'combat');
   const treasureCount = Math.min(free.length, rng.int(1, 2));
   for (let i = 0; i < treasureCount; i++) free[i].type = 'treasure';
+  if (treasureCount === 2 && rng.chance(0.65)) free[1].type = 'rest';
   const encounterCount = free.length > treasureCount + 1 && rng.chance(0.7) ? 1 : 0;
   if (encounterCount > 0) free[free.length - 1].type = 'encounter';
 
@@ -250,6 +247,7 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
   /* ---- gates: corridor mouths at each room edge ---- */
   for (const c of corridors) {
     const attach = (roomId: number, tiles: { x: number; y: number }[]) => {
+      if (!tiles.length) return;
       const room = rooms[roomId];
       const gate: Gate = { tiles, otherRoom: c.roomA === roomId ? c.roomB : c.roomA };
       room.gates.push(gate);
@@ -353,7 +351,19 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
     if (room.type === 'combat') {
       /* pillars first: solid cover that entities must path around; enemy
          spawns then keep their 3-tile distance from every obstacle */
-      placeObstacles(room, rng.int(1, 4), addPillar);
+      // Twin aisles, staggered cover or a broken colonnade.
+      const pattern = rng.pick([
+        [[-4, 0], [4, 0]],
+        [[-3, -2], [3, 2]],
+        [[-4, -2], [-4, 2], [4, -2], [4, 2]],
+      ]);
+      const mirror = rng.chance(0.5) ? 1 : -1;
+      for (const [dx, dy] of pattern) {
+        const x = room.cx + dx * mirror;
+        const y = room.cy + dy;
+        if (obstacleFits(room, x, y)) addPillar(room, x, y);
+      }
+      if (!room.obstacles.length) placeObstacles(room, 1, addPillar);
       /* rubble: worn debris that never blocks movement */
       placeObstacles(room, rng.int(0, 2), addRubble);
       const count = rng.int(Math.max(2, perRoom - 1), perRoom + 1);
@@ -394,6 +404,10 @@ function tryGenerate(seed: number, floor: number, forceAll = false): Dungeon | n
           room.props.push({ kind: 'torch', x, y });
         }
       }
+    } else if (room.type === 'rest') {
+      room.props.push({ kind: 'shrine', x: room.cx, y: room.cy });
+      room.props.push({ kind: 'brazier', x: room.cx - 3, y: room.cy });
+      room.props.push({ kind: 'brazier', x: room.cx + 3, y: room.cy });
     } else if (room.type === 'treasure') {
       room.props.push({ kind: 'chest', x: room.cx, y: room.cy });
       if (rng.chance(0.5)) room.props.push({ kind: 'chest', x: room.cx + 3, y: room.cy + rng.int(-1, 1) });
@@ -504,8 +518,11 @@ function validate(d: Dungeon): boolean {
   }
   /* spawn positions must be on walkable tiles */
   for (const r of d.rooms) {
+    for (const prop of r.props) {
+      if (['chest', 'shrine', 'merchant', 'portal'].includes(prop.kind) && !seen[prop.y * width + prop.x]) return false;
+    }
     for (const sp of r.enemySpawns) {
-      if (walkable[sp.y * width + sp.x] !== 1) return false;
+      if (seen[sp.y * width + sp.x] !== 1) return false;
     }
   }
   /* boss room must not be the start room and must have a spawn table */

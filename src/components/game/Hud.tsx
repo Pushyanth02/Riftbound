@@ -212,7 +212,9 @@ function AbilitySlot({ def, onCast }: { def: SlotDef; onCast: (slot: CastSlot) =
     <button
       type="button"
       tabIndex={0}
-      aria-label={`${def.label} (${def.key})`}
+      title={`${def.label} (${def.key})${def.mana ? ` · ${def.mana} mana` : ''}`}
+      aria-label={`${def.label} (${def.key})${starved ? ', insufficient mana' : cooling ? ', recovering' : ', ready'}`}
+      disabled={starved || (cooling && def.slot !== 'melee')}
       onClick={() => onCast(def.slot)}
       className="pointer-events-auto group relative h-14 w-14 shrink-0 cursor-pointer border border-[rgba(217,173,98,0.4)] bg-[rgba(30,24,44,0.92)] transition-[border-color,transform] hover:-translate-y-px hover:border-[var(--gold)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--gold)]"
     >
@@ -255,7 +257,7 @@ export default function Hud() {
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key === 'Tab') {
+      if (e.key === 'Tab' && useGameStore.getState().ui === 'playing' && !(e.target instanceof HTMLButtonElement)) {
         e.preventDefault();
         setMapLarge(true);
       }
@@ -287,11 +289,15 @@ export default function Hud() {
       )}
 
       {/* top-left cluster */}
-      <div className="absolute left-4 top-4 flex flex-col gap-1.5">
+      <div className="absolute left-4 top-4 flex items-start gap-2">
+        <div aria-hidden="true" className="rb-panel pixelated h-12 w-12 shrink-0"
+          style={{ backgroundImage: "url('/assets/characters/player/idle.png')", backgroundSize: '600px 100px', backgroundPosition: '-26px -31px' }} />
+        <div className="flex flex-col gap-1.5">
         <HpBar hud={hud} />
         <ManaBar hud={hud} />
         <XpBar hud={hud} />
         <RelicBoonRows hud={hud} />
+        </div>
       </div>
 
       {/* top-right cluster */}
@@ -332,6 +338,12 @@ export default function Hud() {
 
       {/* boss bar */}
       {boss && <BossBar boss={boss} />}
+
+      {!boss && <p className="absolute left-1/2 top-5 -translate-x-1/2 bg-[var(--ink)]/80 px-3 py-1 text-center font-body text-sm text-[var(--gold)]">{hud.objective}</p>}
+      {hud.boltCharge > 0 && <div className="absolute bottom-24 left-1/2 -translate-x-1/2 text-center text-xs text-[var(--bone)]">
+        {hud.boltCharge < 1 ? 'Charging Arcane Bolt' : hud.mana >= PLAYER_BASE.boltMana + PLAYER_BASE.boltChargeMana ? 'Release for piercing bolt' : 'Release for Arcane Bolt'}
+        <div className="mt-1 h-1 bg-[var(--stone)]"><div className="h-full bg-[var(--gold)]" style={{ width: `${hud.boltCharge * 100}%` }} /></div>
+      </div>}
 
       {/* room title card */}
       {roomTitle && (

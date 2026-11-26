@@ -3,7 +3,7 @@
 import * as Phaser from 'phaser';
 import { TILE } from '../config';
 import type { GameContext, ProjectileSpawn } from '../ctx';
-import { Entity, dist2 } from './base';
+import { Entity, dist2, gridLineOfSight } from './base';
 import { RELICS, type RelicDef } from '../config';
 
 /* ------------------------------------------------------------------ */
@@ -65,13 +65,19 @@ export class Projectile extends Entity {
   }
 
   update(dt: number): void {
+    const travel = Math.hypot(this.vx, this.vy) * dt / 1000;
+    const steps = Math.max(1, Math.ceil(travel / (TILE / 4)));
+    for (let i = 0; i < steps && !this.dead; i++) this.advance(dt / steps);
+  }
+
+  private advance(dt: number): void {
     const step = dt / 1000;
     const nx = this.x + this.vx * step;
     const ny = this.y + this.vy * step;
     this.life -= dt;
 
     /* wall collision */
-    if (!this.ctx.walkableAtPx(nx, ny)) {
+    if (!gridLineOfSight(this.ctx, this.x, this.y, nx, ny)) {
       this.explode();
       return;
     }
@@ -85,7 +91,7 @@ export class Projectile extends Entity {
       for (const e of this.ctx.enemies) {
         if (e.dead || !e.activated || this.hitSet.has(e)) continue;
         const r = this.radius + e.radius;
-        if (dist2(this.x, this.y, e.x, e.y) <= r * r) {
+        if (dist2(this.x, this.y, e.x, e.y) <= r * r && gridLineOfSight(this.ctx, this.x, this.y, e.x, e.y)) {
           this.hitEnemy(e);
           if (this.dead) return;
         }
@@ -93,7 +99,7 @@ export class Projectile extends Entity {
     } else {
       const p = this.ctx.player;
       const r = this.radius + p.radius;
-      if (dist2(this.x, this.y, p.x, p.y) <= r * r && !p.invulnerable) {
+      if (dist2(this.x, this.y, p.x, p.y) <= r * r && !p.invulnerable && p.lineOfSightFrom(this.x, this.y)) {
         p.takeDamage(this.damage, this.x, this.y);
         this.explode();
       }
@@ -132,7 +138,7 @@ export class Projectile extends Entity {
           for (const e of this.ctx.enemies) {
             if (e.dead || !e.activated || this.hitSet.has(e)) continue;
             const r = this.splashRadius + e.radius;
-            if (dist2(this.x, this.y, e.x, e.y) <= r * r) {
+            if (dist2(this.x, this.y, e.x, e.y) <= r * r && gridLineOfSight(this.ctx, this.x, this.y, e.x, e.y)) {
               const splash = this.splashDamage * (e.isBoss || e.isChampion ? this.ctx.run.stats.bossDmgMult : 1);
               e.takeDamage(splash, { sourceX: this.x, sourceY: this.y, knockback: 90, crit: false });
               if (this.burn) e.applyBurn(this.burn.dps, this.burn.ms);
@@ -234,9 +240,9 @@ export class Pickup extends Entity {
     /* magnet */
     const d2p = dist2(nx, ny, player.x, player.y);
     const magnetR = this.kind === 'soul' ? 96 : 74;
-    if (d2p < magnetR * magnetR && !player.dying) {
+    if (d2p < magnetR * magnetR && !player.dying && player.lineOfSightFrom(nx, ny)) {
       const d = Math.sqrt(d2p) || 1;
-      const pull = 340 * step;
+      const pull = Math.min(d, 340 * step);
       nx += ((player.x - nx) / d) * pull;
       ny += ((player.y - ny) / d) * pull;
     }
@@ -245,7 +251,7 @@ export class Pickup extends Entity {
     this.sprite.setY(ny + Math.sin(this.bobT) * 2.5);
 
     /* collect on the post-magnet position */
-    if (dist2(nx, ny, player.x, player.y) < 24 * 24 && !player.dying) {
+    if (dist2(nx, ny, player.x, player.y) < 24 * 24 && !player.dying && player.lineOfSightFrom(nx, ny)) {
       this.collect();
     }
   }
@@ -346,7 +352,7 @@ export class Chest implements Interactable {
     const gold = rng.between(15, 40);
     const coins = Math.min(7, 3 + Math.floor(gold / 10));
     for (let i = 0; i < coins; i++) {
-      this.ctx.spawnPickup('coin', this.x, this.y, Math.ceil(gold / coins));
+      this.ctx.spawnPickup('coin', this.x, this.y, Math.floor(gold / coins) + Number(i < gold % coins));
     }
     /* guaranteed relic if the player has none */
     if (this.ctx.run.relics.length === 0) {
@@ -397,7 +403,7 @@ export class Shrine implements Interactable {
     if (this.used) return;
     this.used = true;
     this.active = false;
-    this.ctx.player.heal(this.ctx.run.stats.maxHp * 0.3);
+    this.ctx.player.heal(this.ctx.run.stats.maxHp * 0.3 * (1 + 0.3 * this.ctx.run.stacks('healing')) * this.ctx.run.pactMult('healMult'));
     this.ctx.play('shrine');
     this.ctx.toast('The shrine answers', '/assets/icons/relic_shield.png');
     this.object.stop();

@@ -1,7 +1,8 @@
 /* Run state (progression, upgrades, relics, boons, pacts, souls, derived
    stats) and helpers the scene/entities use. */
-import { PLAYER_BASE, RELICS, UPGRADES, xpForLevel, BOONS, PACT_MAP, pactRewardMult, type BoonDef, type RelicDef } from './config';
-import type { PactId, UpgradeId } from './types';
+import { MAX_FLOOR, WEAPONS, PLAYER_BASE, RELICS, UPGRADES, xpForLevel, BOONS, PACT_MAP, pactRewardMult, type BoonDef, type RelicDef } from './config';
+import { z } from 'zod';
+import type { WeaponId, PactId, UpgradeId } from './types';
 
 export interface DerivedStats {
   maxHp: number;
@@ -53,6 +54,7 @@ export interface DerivedStats {
 }
 
 export interface SaveData {
+  weapon?: WeaponId;
   seed: number;
   floor: number;
   level: number;
@@ -68,6 +70,29 @@ export interface SaveData {
   potions: { health: number; mana: number };
   hp: number;
   mana: number;
+}
+
+const count = z.number().int().nonnegative();
+const saveSchema = z.object({
+  weapon: z.enum(['sword', 'knife', 'cleaver']).default('sword'),
+  seed: z.number().int(), floor: count.min(1).max(MAX_FLOOR), level: count.min(1),
+  xp: count, gold: count, kills: count, timeMs: z.number().nonnegative(),
+  upgrades: z.array(z.tuple([z.custom<UpgradeId>((id) => UPGRADES.some((u) => u.id === id)), count]))
+    .refine((entries) => entries.every(([id, n]) => n <= UPGRADES.find((u) => u.id === id)!.maxStacks)),
+  relicIds: z.array(z.string()), boonIds: z.array(z.string()).default([]),
+  pacts: z.array(z.custom<PactId>((id) => typeof id === 'string' && Object.hasOwn(PACT_MAP, id)))
+    .default([]).transform((ids) => [...new Set(ids)]),
+  souls: count.default(0), potions: z.object({ health: count, mana: count }),
+  hp: z.number().positive(), mana: z.number().nonnegative(),
+});
+
+export function parseSave(raw: string): SaveData | null {
+  try {
+    const result = saveSchema.safeParse(JSON.parse(raw));
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
 }
 
 export class RunState {
@@ -90,7 +115,7 @@ export class RunState {
   mana = PLAYER_BASE.maxMana;
   stats: DerivedStats;
 
-  constructor(seed: number, pacts: PactId[] = []) {
+  constructor(seed: number, pacts: PactId[] = [], readonly weapon: WeaponId = 'sword') {
     this.seed = seed;
     this.pacts = pacts.slice();
     this.stats = computeStats(this);
@@ -131,6 +156,8 @@ export class RunState {
   }
 
   addUpgrade(id: UpgradeId): void {
+    const definition = UPGRADES.find((u) => u.id === id);
+    if (!definition || this.stacks(id) >= definition.maxStacks) return;
     this.upgrades.set(id, this.stacks(id) + 1);
     this.stats = computeStats(this);
     if (id === 'maxhp') this.hp = Math.min(this.stats.maxHp, this.hp + 20);
@@ -171,6 +198,7 @@ export class RunState {
 
   toSave(): SaveData {
     return {
+      weapon: this.weapon,
       seed: this.seed,
       floor: this.floor,
       level: this.level,
@@ -190,7 +218,7 @@ export class RunState {
   }
 
   static fromSave(data: SaveData): RunState {
-    const run = new RunState(data.seed, data.pacts ?? []);
+    const run = new RunState(data.seed, data.pacts ?? [], data.weapon);
     run.floor = data.floor;
     run.level = data.level;
     run.xp = data.xp;
@@ -224,8 +252,8 @@ function computeStats(run: RunState): DerivedStats {
     maxHp: Math.round((PLAYER_BASE.maxHp + 20 * s('maxhp')) * hpMult),
     maxMana: PLAYER_BASE.maxMana + 20 * s('maxMana'),
     moveSpeed: PLAYER_BASE.moveSpeed * (1 + 0.1 * s('moveSpeed')),
-    meleeDamage: PLAYER_BASE.meleeDamage * (1 + 0.15 * s('meleeDmg')),
-    meleeCooldown: PLAYER_BASE.meleeCooldown / (1 + 0.12 * s('atkSpeed')),
+    meleeDamage: PLAYER_BASE.meleeDamage * WEAPONS[run.weapon].damage * (1 + 0.15 * s('meleeDmg')),
+    meleeCooldown: PLAYER_BASE.meleeCooldown * WEAPONS[run.weapon].tempo / (1 + 0.12 * s('atkSpeed')),
     critChance: PLAYER_BASE.critChance + 0.08 * s('crit') + run.relics.reduce((a, r) => a + (r.effect.critAdd ?? 0), 0),
     critMult: PLAYER_BASE.critMult,
     fireballDamage: PLAYER_BASE.fireballDamage * (1 + 0.2 * s('spellDmg')),
@@ -246,7 +274,7 @@ function computeStats(run: RunState): DerivedStats {
     whirlRadius: PLAYER_BASE.whirlRadius,
     dodgeCooldown:
       PLAYER_BASE.dodgeCooldown *
-      (1 - 0.25 * s('dodgeCd')) *
+      Math.pow(0.75, s('dodgeCd')) *
       (1 - run.relics.reduce((a, r) => a + (r.effect.dodgeCharge ?? 0), 0)) *
       (boon('dodgeCdMult') > 0 ? boon('dodgeCdMult') : 1),
     invulnMs: PLAYER_BASE.invulnMs,
