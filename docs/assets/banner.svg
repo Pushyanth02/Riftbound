@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-label="RIFTBOUND: Echoes of the Fallen">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="62%" r="75%">
+      <stop offset="0%" stop-color="#2a1f3d"/>
+      <stop offset="45%" stop-color="#171126"/>
+      <stop offset="100%" stop-color="#0e0a14"/>
+    </radialGradient>
+    <radialGradient id="sealGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#d9ad62" stop-opacity="0.55"/>
+      <stop offset="60%" stop-color="#9868e8" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#9868e8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="goldText" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f4e3b8"/>
+      <stop offset="45%" stop-color="#d9ad62"/>
+      <stop offset="100%" stop-color="#a67c33"/>
+    </linearGradient>
+    <linearGradient id="shimmerLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#9868e8" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#d9ad62" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#9868e8" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="titleGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <style>
+    .bg { fill: url(#bgGlow); }
+    .vignette { fill: none; }
+
+    .title {
+      font: 700 84px 'Trebuchet MS', 'Segoe UI', Verdana, sans-serif;
+      letter-spacing: 26px;
+      fill: url(#goldText);
+      filter: url(#titleGlow);
+      animation: titlePulse 3.4s ease-in-out infinite;
+      transform-origin: 600px 148px;
+    }
+    @keyframes titlePulse {
+      0%, 100% { opacity: 0.86; }
+      50% { opacity: 1; }
+    }
+
+    .kicker {
+      font: 600 17px 'Trebuchet MS', 'Segoe UI', Verdana, sans-serif;
+      letter-spacing: 12px;
+      fill: #9868e8;
+      animation: kickerFade 3.4s ease-in-out infinite;
+    }
+    @keyframes kickerFade {
+      0%, 100% { opacity: 0.55; }
+      50% { opacity: 0.95; }
+    }
+
+    .subtitle {
+      font: italic 500 24px Georgia, 'Times New Roman', serif;
+      letter-spacing: 6px;
+      fill: #c3aee8;
+      animation: subFloat 4.2s ease-in-out infinite;
+    }
+    @keyframes subFloat {
+      0%, 100% { transform: translateY(0px); opacity: 0.88; }
+      50% { transform: translateY(-3px); opacity: 1; }
+    }
+
+    .tagline {
+      font: 500 15px 'Trebuchet MS', 'Segoe UI', Verdana, sans-serif;
+      letter-spacing: 5px;
+      fill: #b3a8c4;
+      animation: tagBreathe 5s ease-in-out infinite;
+    }
+    @keyframes tagBreathe {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 0.95; }
+    }
+
+    .sealRing { transform-origin: 600px 168px; animation: spin 26s linear infinite; }
+    .sealRing2 { transform-origin: 600px 168px; animation: spinRev 38s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes spinRev { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+
+    .sealPulse { animation: sealPulse 4.6s ease-in-out infinite; transform-origin: 600px 168px; }
+    @keyframes sealPulse {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 0.8; }
+    }
+
+    .ember { animation: rise linear infinite; }
+    .emberA { animation-duration: 7s; animation-delay: 0s; }
+    .emberB { animation-duration: 9s; animation-delay: 1.4s; }
+    .emberC { animation-duration: 8s; animation-delay: 2.8s; }
+    .emberD { animation-duration: 10s; animation-delay: 0.8s; }
+    .emberE { animation-duration: 7.5s; animation-delay: 3.6s; }
+    .emberF { animation-duration: 11s; animation-delay: 2s; }
+    .emberG { animation-duration: 8.6s; animation-delay: 4.4s; }
+    .emberH { animation-duration: 9.4s; animation-delay: 5.2s; }
+    @keyframes rise {
+      0% { transform: translateY(0px); opacity: 0; }
+      12% { opacity: 0.9; }
+      70% { opacity: 0.55; }
+      100% { transform: translateY(-190px); opacity: 0; }
+    }
+
+    .shimmer {
+      animation: shimmerSlide 3.8s ease-in-out infinite;
+    }
+    @keyframes shimmerSlide {
+      0% { transform: translateX(-140px); opacity: 0; }
+      25% { opacity: 1; }
+      75% { opacity: 1; }
+      100% { transform: translateX(140px); opacity: 0; }
+    }
+
+    .blade { animation: bladeGlint 5.5s ease-in-out infinite; }
+    @keyframes bladeGlint {
+      0%, 100% { opacity: 0.25; }
+      50% { opacity: 0.95; }
+    }
+  </style>
+
+  <!-- backdrop -->
+  <rect class="bg" x="0" y="0" width="1200" height="340"/>
+
+  <!-- distant keep silhouette -->
+  <g opacity="0.5">
+    <path d="M0 340 L0 250 L60 250 L60 220 L80 220 L80 250 L150 250 L150 200 L170 200 L170 250 L240 250 L240 235 L260 235 L260 250 L330 250 L330 190 L345 175 L360 190 L360 250 L430 250 L430 225 L450 225 L450 250 L520 250 L520 205 L540 205 L540 250 L600 250 Z" fill="#0a0710"/>
+    <path d="M600 250 L660 250 L660 205 L680 205 L680 250 L750 250 L750 225 L770 225 L770 250 L840 250 L840 190 L855 175 L870 190 L870 250 L940 250 L940 235 L960 235 L960 250 L1030 250 L1030 200 L1050 200 L1050 250 L1120 250 L1120 220 L1140 220 L1140 250 L1200 250 L1200 340 Z" fill="#0a0710"/>
+  </g>
+
+  <!-- arcane seal behind the title -->
+  <g>
+    <circle class="sealPulse" cx="600" cy="168" r="150" fill="url(#sealGlow)"/>
+    <g class="sealRing" stroke="#9868e8" stroke-width="1.4" fill="none" opacity="0.34">
+      <circle cx="600" cy="168" r="142" stroke-dasharray="10 14"/>
+      <path d="M600 26 L754 168 L600 310 L446 168 Z"/>
+    </g>
+    <g class="sealRing2" stroke="#d9ad62" stroke-width="1" fill="none" opacity="0.28">
+      <circle cx="600" cy="168" r="122" stroke-dasharray="3 9"/>
+      <path d="M478 168 L600 46 L722 168 L600 290 Z"/>
+    </g>
+  </g>
+
+  <!-- floating embers -->
+  <g fill="#d9ad62">
+    <circle class="ember emberA" cx="140" cy="300" r="2.4"/>
+    <circle class="ember emberB" cx="260" cy="320" r="1.8"/>
+    <circle class="ember emberC" cx="380" cy="305" r="2.8"/>
+    <circle class="ember emberD" cx="470" cy="325" r="1.6"/>
+    <circle class="ember emberE" cx="700" cy="310" r="2.2"/>
+    <circle class="ember emberF" cx="820" cy="322" r="1.9"/>
+    <circle class="ember emberG" cx="950" cy="302" r="2.6"/>
+    <circle class="ember emberH" cx="1080" cy="318" r="2"/>
+  </g>
+  <g fill="#9868e8">
+    <circle class="ember emberC" cx="200" cy="330" r="1.7"/>
+    <circle class="ember emberA" cx="540" cy="328" r="1.5"/>
+    <circle class="ember emberE" cx="760" cy="328" r="1.9"/>
+    <circle class="ember emberB" cx="1010" cy="330" r="1.6"/>
+  </g>
+
+  <!-- crossed blades flanking the title -->
+  <g stroke="#cbb98f" stroke-width="3.2" stroke-linecap="round" fill="none">
+    <path class="blade" d="M150 232 L252 130"/>
+    <path class="blade" d="M1050 232 L948 130"/>
+  </g>
+  <g fill="#d9ad62">
+    <circle class="blade" cx="150" cy="232" r="5"/>
+    <circle class="blade" cx="1050" cy="232" r="5"/>
+  </g>
+
+  <!-- title block -->
+  <text class="kicker" x="600" y="66" text-anchor="middle">A DARK FANTASY ACTION ROGUELIKE</text>
+  <text class="title" x="607" y="196" text-anchor="middle">RIFTBOUND</text>
+
+  <!-- shimmering divider -->
+  <g>
+    <rect x="390" y="226" width="420" height="1.6" fill="#4a3d66"/>
+    <rect x="390" y="226" width="60" height="1.6" fill="#9868e8" opacity="0.5"/>
+    <rect x="750" y="226" width="60" height="1.6" fill="#9868e8" opacity="0.5"/>
+    <g class="shimmer">
+      <rect x="520" y="224" width="160" height="4" rx="2" fill="url(#shimmerLine)"/>
+    </g>
+    <circle cx="600" cy="226.8" r="3.4" fill="#d9ad62" class="sealPulse"/>
+  </g>
+
+  <text class="subtitle" x="600" y="262" text-anchor="middle">Echoes of the Fallen</text>
+  <text class="tagline" x="600" y="306" text-anchor="middle">DESCEND - FIGHT - BREAK THE ECHOES AT THE SEAL</text>
+</svg>

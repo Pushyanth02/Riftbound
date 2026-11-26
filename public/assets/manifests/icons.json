@@ -1,0 +1,132 @@
+{
+ "melee": {
+  "file": "icons/melee.png",
+  "sourceIcon": "fb729.png",
+  "size": 32
+ },
+ "fireball": {
+  "file": "icons/fireball.png",
+  "sourceIcon": "fb993.png",
+  "size": 32
+ },
+ "frost": {
+  "file": "icons/frost.png",
+  "sourceIcon": "fb783.png",
+  "size": 32
+ },
+ "arcane": {
+  "file": "icons/arcane.png",
+  "sourceIcon": "fb842.png",
+  "size": 32
+ },
+ "whirlwind": {
+  "file": "icons/whirlwind.png",
+  "sourceIcon": "fb739.png",
+  "size": 32
+ },
+ "dodge": {
+  "file": "icons/dodge.png",
+  "sourceIcon": "fb759.png",
+  "size": 32
+ },
+ "relic_shield": {
+  "file": "icons/relic_shield.png",
+  "sourceIcon": "fb857.png",
+  "size": 32
+ },
+ "health_potion": {
+  "file": "icons/health_potion.png",
+  "sourceIcon": "fb122.png",
+  "size": 32
+ },
+ "mana_potion": {
+  "file": "icons/mana_potion.png",
+  "sourceIcon": "fb123.png",
+  "size": 32
+ },
+ "gold": {
+  "file": "icons/gold.png",
+  "sourceIcon": "fb65.png",
+  "size": 32
+ },
+ "xp": {
+  "file": "icons/xp.png",
+  "sourceIcon": "fb921.png",
+  "size": 32
+ },
+ "skull": {
+  "file": "icons/skull.png",
+  "sourceIcon": "fb707.png",
+  "size": 32
+ },
+ "boss": {
+  "file": "icons/boss.png",
+  "sourceIcon": "fb225.png",
+  "size": 32
+ },
+ "chest": {
+  "file": "icons/chest.png",
+  "sourceIcon": "fb6.png",
+  "size": 32
+ },
+ "chest_alt": {
+  "file": "icons/chest_alt.png",
+  "sourceIcon": "fb312.png",
+  "size": 32
+ },
+ "key": {
+  "file": "icons/key.png",
+  "sourceIcon": "fb179.png",
+  "size": 32
+ },
+ "portal": {
+  "file": "icons/portal.png",
+  "sourceIcon": "fb875.png",
+  "size": 32
+ },
+ "shop": {
+  "file": "icons/shop.png",
+  "sourceIcon": "fb305.png",
+  "size": 32
+ },
+ "tome": {
+  "file": "icons/tome.png",
+  "sourceIcon": "fb289.png",
+  "size": 32
+ },
+ "gem_green": {
+  "file": "icons/gem_green.png",
+  "sourceIcon": "fb968.png",
+  "size": 32
+ },
+ "gem_red": {
+  "file": "icons/gem_red.png",
+  "sourceIcon": "fb96.png",
+  "size": 32
+ },
+ "ring": {
+  "file": "icons/ring.png",
+  "sourceIcon": "fb946.png",
+  "size": 32
+ },
+ "shards": {
+  "file": "icons/shards.png",
+  "sourceIcon": "fb843.png",
+  "size": 32
+ },
+ "chalice": {
+  "file": "icons/chalice.png",
+  "sourceIcon": "fb65.png",
+  "size": 32
+ },
+ "ghost": {
+  "file": "icons/ghost.png",
+  "sourceIcon": "fb5.png",
+  "size": 32
+ },
+ "demon_face": {
+  "file": "icons/demon_face.png",
+  "sourceIcon": "fb741.png",
+  "size": 32
+ }
+}

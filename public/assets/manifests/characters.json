@@ -1,0 +1,159 @@
+{
+ "player": {
+  "frame": 100,
+  "license": "Tiny RPG Character Asset Pack 01 v2.0 free - Zerie (zerie.itch.io), free pack, credit appreciated",
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "file": "characters/player/idle.png"
+   },
+   "walk": {
+    "frames": 8,
+    "file": "characters/player/walk.png"
+   },
+   "atk1": {
+    "frames": 6,
+    "file": "characters/player/atk1.png"
+   },
+   "atk2": {
+    "frames": 6,
+    "file": "characters/player/atk2.png"
+   },
+   "atk3": {
+    "frames": 9,
+    "file": "characters/player/atk3.png"
+   },
+   "hurt": {
+    "frames": 4,
+    "file": "characters/player/hurt.png"
+   },
+   "death": {
+    "frames": 4,
+    "file": "characters/player/death.png"
+   }
+  },
+  "idleFrame0AlphaBBox": [
+   41,
+   39,
+   58,
+   60
+  ]
+ },
+ "orc": {
+  "frame": 100,
+  "license": "Tiny RPG Character Asset Pack 01 v2.0 free - Zerie (zerie.itch.io), free pack, credit appreciated",
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "file": "characters/orc/idle.png"
+   },
+   "walk": {
+    "frames": 8,
+    "file": "characters/orc/walk.png"
+   },
+   "atk1": {
+    "frames": 6,
+    "file": "characters/orc/atk1.png"
+   },
+   "atk2": {
+    "frames": 6,
+    "file": "characters/orc/atk2.png"
+   },
+   "hurt": {
+    "frames": 4,
+    "file": "characters/orc/hurt.png"
+   },
+   "death": {
+    "frames": 4,
+    "file": "characters/orc/death.png"
+   }
+  },
+  "idleFrame0AlphaBBox": [
+   44,
+   42,
+   66,
+   57
+  ]
+ },
+ "demon": {
+  "frame": 100,
+  "license": "Tiny RPG Character Asset Pack 02 v1.01 free - Zerie (zerie.itch.io), free pack, credit appreciated",
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "file": "characters/demon/idle.png"
+   },
+   "walk": {
+    "frames": 8,
+    "file": "characters/demon/walk.png"
+   },
+   "atk1": {
+    "frames": 7,
+    "file": "characters/demon/atk1.png"
+   },
+   "atk2": {
+    "frames": 7,
+    "file": "characters/demon/atk2.png"
+   },
+   "hurt": {
+    "frames": 4,
+    "file": "characters/demon/hurt.png"
+   },
+   "death": {
+    "frames": 4,
+    "file": "characters/demon/death.png"
+   }
+  },
+  "idleFrame0AlphaBBox": [
+   43,
+   39,
+   63,
+   59
+  ]
+ },
+ "bloodmon": {
+  "frame": 100,
+  "license": "Tiny RPG Character Asset Pack 02 v1.01 free - Zerie (zerie.itch.io), free pack, credit appreciated",
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "file": "characters/bloodmon/idle.png"
+   },
+   "walk": {
+    "frames": 8,
+    "file": "characters/bloodmon/walk.png"
+   },
+   "atk1": {
+    "frames": 8,
+    "file": "characters/bloodmon/atk1.png"
+   },
+   "atk2": {
+    "frames": 8,
+    "file": "characters/bloodmon/atk2.png"
+   },
+   "hurt": {
+    "frames": 4,
+    "file": "characters/bloodmon/hurt.png"
+   },
+   "death": {
+    "frames": 4,
+    "file": "characters/bloodmon/death.png"
+   }
+  },
+  "idleFrame0AlphaBBox": [
+   42,
+   42,
+   62,
+   57
+  ]
+ },
+ "merchant": {
+  "frame": 110,
+  "anims": {
+   "idle": {
+    "frames": 8,
+    "file": "characters/merchant/idle.png"
+   }
+  }
+ }
+}
