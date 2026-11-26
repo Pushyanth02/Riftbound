@@ -1,6 +1,6 @@
 # Gameplay overhaul checkpoint
 
-Local branch `gameplay-overhaul`, starting from `588a48f`. The game builds and runs. Continue from this checkpoint for the remaining content and balance work.
+Gameplay checkpoint `b67049c`, based on `588a48f`. The game builds and runs. The [next-phase plan](NEXT_PHASES.md) gives the implementation order and acceptance checks for the remaining work.
 
 ## Playable changes
 
