@@ -6,13 +6,25 @@ The [development checkpoint](DEVELOPMENT_STATE.md) records the build, automated 
 
 ## 1. Combat feel and an unassisted baseline
 
+**Status: tooling delivered, unassisted baseline outstanding.** The
+deterministic combat core (`src/game/combat.ts`) is extracted and shared by
+the entities and `scripts/combat.test.ts` (24 tests: buffering, cooldown
+expiry, dodge cancels per swing phase, interrupted charging, arc
+entry/exit, one-hit-per-swing, point-blank and piercing shots, corner and
+seal checks across frame intervals). F3 draws the melee sector, projectile
+sweep and enemy warning areas, and melee timings/hit areas now live in the
+typed `MELEE` config block. Remaining for acceptance: the unassisted
+weapon playthroughs below, the damage/crit frequency measurements, and any
+resulting tuning changes - the defaults are unchanged until those runs
+justify a change.
+
 **Deliverable.** A reproducible combat test set and a tuned sword, knife and cleaver. Start in `entities/player.ts`, `entities/objects.ts`, `sight.ts` and `config.ts` under `src/game`.
 
 1. Pick reproducible seeds containing a narrow doorway, a pillar fight, a champion and the final arena. Play each weapon on a shared seed without teleporting, granting resources or changing enemy HP. Repeat the hardest encounter with Fury enabled. Record clear times, damage taken, missed inputs, mana starvation and the cause of each death.
-2. Add deterministic tests around early and late input buffering, cooldown expiry, dodge during each swing phase, interrupted charging, and a target entering or leaving the slash arc. Exercise point-blank shots, piercing shots crossing two enemies, diagonal wall corners and temporary seals at multiple frame intervals.
-3. Extend F3 to draw the active melee sector, projectile sweep and enemy warning area. Compare the first damaging frame with the sprite, sound and effect. Tune timings and hit areas in typed configuration. Measure damage and critical-effect frequency over a complete combo before changing weapon multipliers.
+2. Add deterministic tests around early and late input buffering, cooldown expiry, dodge during each swing phase, interrupted charging, and a target entering or leaving the slash arc. Exercise point-blank shots, piercing shots crossing two enemies, diagonal wall corners and temporary seals at multiple frame intervals. *(delivered - see `scripts/combat.test.ts`)*
+3. Extend F3 to draw the active melee sector, projectile sweep and enemy warning area. Compare the first damaging frame with the sprite, sound and effect. Tune timings and hit areas in typed configuration. Measure damage and critical-effect frequency over a complete combo before changing weapon multipliers. *(overlay + typed config delivered; measurements and tuning pending the playthroughs)*
 
-**Acceptance.** One swing hits each target at most once. A visible barrier blocks damage from its far side. Dodge and pause have predictable effects on charge, recovery and queued inputs. Record one unassisted completion per weapon or preserve a reproducible blocker for the next tuning pass.
+**Acceptance.** One swing hits each target at most once. A visible barrier blocks damage from its far side. Dodge and pause have predictable effects on charge, recovery and queued inputs. Record one unassisted completion per weapon or preserve a reproducible blocker for the next tuning pass. *(the first two sentences are now covered by automated tests; the unassisted completions are not)*
 
 ## 2. Room placement, optional routes and the map
 

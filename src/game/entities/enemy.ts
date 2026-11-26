@@ -319,6 +319,26 @@ abstract class Hostile extends Entity {
     const key = `${this.defSprite}_${moving ? 'walk' : 'idle'}`;
     if (this.sprite.anims.currentAnim?.key !== key) this.sprite.play(key);
   }
+
+  /** F3/QA: current windup warning area, or null when not telegraphing. */
+  debugTelegraph(): TelegraphDebug | null {
+    return null;
+  }
+}
+
+/** Warning-area description for the F3 overlay: where the damage will land
+    while an enemy is still in its windup. */
+export interface TelegraphDebug {
+  /** 'strike' = area around the enemy, 'lunge' = dash to the focus point,
+     'aim' = projectile line to the focus point */
+  kind: 'strike' | 'lunge' | 'aim';
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
+  radius: number;
+  startedAt: number;
+  endsAt: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -369,6 +389,35 @@ export class Enemy extends Hostile {
 
   protected get eliteTint(): number {
     return this.elite?.tint ?? 0;
+  }
+
+  /** F3/QA: danger area while winding up, derived from the behavior. */
+  debugTelegraph(): TelegraphDebug | null {
+    if (this.aiState !== 'telegraph') return null;
+    const startedAt = this.stateUntil - this.def.attackWindup;
+    switch (this.def.behavior) {
+      case 'melee':
+      case 'heavy':
+        return {
+          kind: 'strike', x: this.x, y: this.y, tx: this.x, ty: this.y,
+          radius: this.def.attackRange + (this.def.behavior === 'heavy' ? 26 : 14) + 16,
+          startedAt, endsAt: this.stateUntil,
+        };
+      case 'lunge':
+        return {
+          kind: 'lunge', x: this.x, y: this.y,
+          tx: this.telegraphTarget.x, ty: this.telegraphTarget.y,
+          radius: 46, startedAt, endsAt: this.stateUntil,
+        };
+      case 'ranged':
+        return {
+          kind: 'aim', x: this.x, y: this.y,
+          tx: this.telegraphTarget.x, ty: this.telegraphTarget.y,
+          radius: 30, startedAt, endsAt: this.stateUntil,
+        };
+      default:
+        return null;
+    }
   }
 
   protected die(): void {

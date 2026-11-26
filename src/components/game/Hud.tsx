@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
+import { assetPath } from '@/lib/assetPath';
 import { PATRONS, PLAYER_BASE } from '@/game/config';
 import { clamp01 } from './shared';
 import { Keycap } from './shared';
@@ -87,7 +88,7 @@ function RelicBoonRows({ hud }: { hud: HudState }) {
           {hud.relics.map((r) => (
             <img
               key={r.id}
-              src={r.icon}
+              src={assetPath(r.icon)}
               alt=""
               draggable={false}
               title={`${r.name} — ${r.desc}`}
@@ -105,7 +106,7 @@ function RelicBoonRows({ hud }: { hud: HudState }) {
               className="block border-b-2 pb-px"
               style={{ borderColor: PATRONS[b.patron].color }}
             >
-              <img src={b.icon} alt="" draggable={false} className="pixelated block h-6 w-6" />
+              <img src={assetPath(b.icon)} alt="" draggable={false} className="pixelated block h-6 w-6" />
             </span>
           ))}
         </div>
@@ -151,7 +152,7 @@ function BossBar({ boss }: { boss: BossState }) {
     >
       <div className="flex items-center justify-center gap-2.5">
         <img
-          src="/assets/icons/boss.png"
+          src={assetPath('/assets/icons/boss.png')}
           alt=""
           draggable={false}
           className={cn('pixelated shrink-0', champion ? 'h-6 w-6' : 'h-8 w-8')}
@@ -218,7 +219,7 @@ function AbilitySlot({ def, onCast }: { def: SlotDef; onCast: (slot: CastSlot) =
       onClick={() => onCast(def.slot)}
       className="pointer-events-auto group relative h-14 w-14 shrink-0 cursor-pointer border border-[rgba(217,173,98,0.4)] bg-[rgba(30,24,44,0.92)] transition-[border-color,transform] hover:-translate-y-px hover:border-[var(--gold)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--gold)]"
     >
-      <img src={def.icon} alt="" draggable={false} className={cn('pixelated h-9 w-9 transition-opacity', cooling && 'opacity-40')} />
+      <img src={assetPath(def.icon)} alt="" draggable={false} className={cn('pixelated h-9 w-9 transition-opacity', cooling && 'opacity-40')} />
       {/* mana cost chip (bottom-left) */}
       {def.mana !== undefined && (
         <span
@@ -291,7 +292,7 @@ export default function Hud() {
       {/* top-left cluster */}
       <div className="absolute left-4 top-4 flex items-start gap-2">
         <div aria-hidden="true" className="rb-panel pixelated h-12 w-12 shrink-0"
-          style={{ backgroundImage: "url('/assets/characters/player/idle.png')", backgroundSize: '600px 100px', backgroundPosition: '-26px -31px' }} />
+          style={{ backgroundImage: `url('${assetPath('/assets/characters/player/idle.png')}')`, backgroundSize: '600px 100px', backgroundPosition: '-26px -31px' }} />
         <div className="flex flex-col gap-1.5">
         <HpBar hud={hud} />
         <ManaBar hud={hud} />
@@ -304,11 +305,11 @@ export default function Hud() {
       <div className="absolute right-4 top-4 flex flex-col items-end gap-2">
         <div className="flex items-center gap-2">
           <span className="sr-only">Soul shards</span>
-          <img src="/assets/icons/ghost.png" alt="" draggable={false} className="pixelated h-6 w-6" />
+          <img src={assetPath('/assets/icons/ghost.png')} alt="" draggable={false} className="pixelated h-6 w-6" />
           <span className="font-display text-lg font-bold tabular-nums text-[#b49ae8]">{hud.souls}</span>
         </div>
         <div className="flex items-center gap-2">
-          <img src="/assets/icons/gold.png" alt="" className="pixelated h-6 w-6" draggable={false} />
+          <img src={assetPath('/assets/icons/gold.png')} alt="" className="pixelated h-6 w-6" draggable={false} />
           <span className="font-display text-lg font-bold tabular-nums text-[var(--gold)]">{hud.gold}</span>
         </div>
         <div className="text-right">
@@ -321,7 +322,7 @@ export default function Hud() {
               {Array.from({ length: Math.min(hud.pactCount, 6) }, (_, i) => (
                 <img
                   key={i}
-                  src="/assets/icons/relic_shield.png"
+                  src={assetPath('/assets/icons/relic_shield.png')}
                   alt=""
                   draggable={false}
                   title="Pact sworn"
@@ -373,7 +374,7 @@ export default function Hud() {
       <div className="absolute right-4 top-[286px] flex w-72 flex-col items-end gap-1.5">
         {toasts.map((t) => (
           <div key={t.id} className="anim-toast-in pointer-events-none flex items-center gap-2 border border-[rgba(217,173,98,0.4)] bg-[rgba(25,20,37,0.94)] px-3 py-1.5">
-            {t.icon && <img src={t.icon} alt="" className="pixelated h-5 w-5" draggable={false} />}
+            {t.icon && <img src={assetPath(t.icon)} alt="" className="pixelated h-5 w-5" draggable={false} />}
             <span className="font-body text-xs text-[var(--bone)]">{t.text}</span>
           </div>
         ))}
@@ -407,7 +408,7 @@ export default function Hud() {
           disabled={hud.potions.health <= 0}
           className="pointer-events-auto group relative h-14 w-14 shrink-0 border border-[rgba(217,173,98,0.4)] bg-[rgba(30,24,44,0.92)] transition-[border-color,transform] hover:-translate-y-px hover:border-[var(--gold)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--gold)] disabled:cursor-not-allowed disabled:opacity-45"
         >
-          <img src="/assets/icons/health_potion.png" alt="" className="pixelated mx-auto h-9 w-9" draggable={false} />
+          <img src={assetPath('/assets/icons/health_potion.png')} alt="" className="pixelated mx-auto h-9 w-9" draggable={false} />
           <span className="rb-keycap absolute bottom-0.5 right-0.5 !px-1 !py-0 !text-[8px]">Q</span>
           <span className="absolute -right-1.5 -top-1.5 min-w-[18px] border border-[rgba(217,173,98,0.55)] bg-[#1c1729] px-1 text-center font-body text-[10px] font-bold tabular-nums text-[var(--bone)]">
             {hud.potions.health}
@@ -420,7 +421,7 @@ export default function Hud() {
           disabled={hud.potions.mana <= 0}
           className="pointer-events-auto group relative h-14 w-14 shrink-0 border border-[rgba(217,173,98,0.4)] bg-[rgba(30,24,44,0.92)] transition-[border-color,transform] hover:-translate-y-px hover:border-[var(--gold)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--gold)] disabled:cursor-not-allowed disabled:opacity-45"
         >
-          <img src="/assets/icons/mana_potion.png" alt="" className="pixelated mx-auto h-9 w-9" draggable={false} />
+          <img src={assetPath('/assets/icons/mana_potion.png')} alt="" className="pixelated mx-auto h-9 w-9" draggable={false} />
           <span className="rb-keycap absolute bottom-0.5 right-0.5 !px-1 !py-0 !text-[8px]">F</span>
           <span className="absolute -right-1.5 -top-1.5 min-w-[18px] border border-[rgba(217,173,98,0.55)] bg-[#1c1729] px-1 text-center font-body text-[10px] font-bold tabular-nums text-[var(--bone)]">
             {hud.potions.mana}

@@ -17,11 +17,13 @@ Requirements: Node 20+/Bun, a WebGL-capable browser for manual testing.
 | Path | What lives there |
 |---|---|
 | `src/game/` | Phaser engine code - scenes, entities, dungeon, audio, fx |
+| `src/game/combat.ts` | Pure, deterministic combat core (shared with the test suite) |
 | `src/components/game/` | React overlays - menus, HUD, modals |
 | `src/lib/gameStore.ts` | Zustand store + the bus bridge (game to React contract) |
 | `src/game/types.ts` | The shared game/UI contract - change this deliberately |
 | `public/assets/` | Processed sprites and manifests (do not hand-edit) |
-| `scripts/asset-tools/` | The asset pipeline that generates `public/assets` |
+| `scripts/` | Tests, asset pipeline, Pages build helpers |
+| `.github/workflows/` | CI (lint/typecheck/test/build) + GitHub Pages deploy |
 | `docs/` | Design docs, QA and performance notes |
 
 ## Workflow
@@ -32,11 +34,13 @@ Requirements: Node 20+/Bun, a WebGL-capable browser for manual testing.
    - React talks to the game **only** through `bus.cmd` commands.
    - New events need a type in `src/game/types.ts` and a mirror field in
      `src/lib/gameStore.ts`.
-3. Verify locally:
+3. Verify locally (CI runs the same list plus the Pages build):
 
    ```bash
+   bunx prisma generate   # once, for the typecheck
    bun run lint
-   bunx tsc --noEmit
+   bun x tsc --noEmit
+   bun test               # deterministic gameplay + combat tests
    ```
 
 4. Play the golden path before opening a PR: menu -> new run -> pact ->
@@ -62,8 +66,13 @@ Requirements: Node 20+/Bun, a WebGL-capable browser for manual testing.
   the existing one (see [docs/ART_DIRECTION.md](docs/ART_DIRECTION.md)).
 - **Assets** are never hand-copied into `public/assets` - add or change the
   source pack, then re-run the pipeline script and commit its output.
-- **No test files** in this repo - verification is lint, typecheck, and the
-  manual golden path above.
+- **Deterministic tests** live in `scripts/*.test.ts` (bun test). Combat
+  timing policy belongs in `src/game/combat.ts`, not inline in entities, so
+  new mechanics come with tests against the shared primitives.
+- **Public asset URLs** in React code go through `assetPath()`
+  (`src/lib/assetPath.ts`) so the static Pages export keeps working.
+- CI must pass: lint, typecheck, tests and the Pages export build run on
+  every PR (`bun run build:pages` locally reproduces it).
 
 ## Performance bar
 

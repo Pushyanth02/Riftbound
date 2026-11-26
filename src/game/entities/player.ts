@@ -1,14 +1,21 @@
 /* The player hero: movement, dodge, melee combo, spells, boons, damage, death. */
 import * as Phaser from 'phaser';
-import { PLAYER_BASE, WEAPONS } from '../config';
+import { MELEE, PLAYER_BASE, WEAPONS } from '../config';
 import type { GameContext } from '../ctx';
+import {
+  ChargeTracker,
+  MeleeTimeline,
+  inMeleeSector,
+  meleeCadenceFor,
+  meleeSectorFor,
+  type MeleeCadence,
+  type MeleePhase,
+} from '../combat';
 import { Entity, dist2, gridLineOfSight, moveGrid } from './base';
 import type { Enemy } from './enemy';
 
 const BODY_HALF_W = 11;
 const BODY_HALF_H = 7;
-
-type AtkPhase = 'none' | 'windup' | 'active' | 'recover';
 
 export class Player extends Entity {
   private ctx: GameContext;
@@ -31,16 +38,11 @@ export class Player extends Entity {
   private trailAt = 0;
   private dodgeChillAt = 0;
 
-  /* melee */
-  private meleeReadyAt = 0;
-  private comboIndex = 0;
+  /* melee + charge (deterministic core lives in src/game/combat.ts) */
+  private readonly melee = new MeleeTimeline();
+  private readonly charge = new ChargeTracker(PLAYER_BASE.boltChargeMs);
   private velocityX = 0;
   private velocityY = 0;
-  private atkPhase: AtkPhase = 'none';
-  private atkPhaseUntil = 0;
-  private atkHitSet = new Set<Enemy>();
-  private bufferedUntil = -1;
-  private swingAngle = 0;
 
   /* cooldowns (timestamps) */
   private fireballReadyAt = 0;
@@ -80,27 +82,22 @@ export class Player extends Entity {
 
   queueMelee(): void {
     if (this.dying) return;
-    if (this.atkPhase !== 'none' || this.ctx.now < Math.max(this.meleeReadyAt, this.dodgeUntil)) {
-      this.bufferedUntil = this.ctx.now + PLAYER_BASE.attackBufferMs;
-      return;
-    }
-    this.startMelee();
+    const ev = this.melee.queue(this.ctx.now, this.cadence(), this.ctx.run.stats.meleeCooldown, this.dodgeUntil);
+    if (ev) this.onSwingStart();
   }
 
-  private startMelee(): void {
-    const stats = this.ctx.run.stats;
-    if (this.ctx.now > this.meleeReadyAt + PLAYER_BASE.comboResetMs) this.comboIndex = 0;
-    this.bufferedUntil = -1;
-    this.comboIndex = (this.comboIndex % 3) + 1;
-    this.atkPhase = 'windup';
-    this.atkPhaseUntil = this.ctx.now + 70 * WEAPONS[this.ctx.run.weapon].tempo;
-    this.atkHitSet.clear();
-    this.meleeReadyAt = this.ctx.now + stats.meleeCooldown;
-    this.sprite.play(this.comboIndex === 3 ? 'player_atk3' : this.comboIndex === 2 ? 'player_atk2' : 'player_atk1');
+  private cadence(): MeleeCadence {
+    return meleeCadenceFor(this.ctx.run.weapon);
+  }
+
+  /** Visual + movement payload fired the frame a swing begins. */
+  private onSwingStart(): void {
+    const combo = this.melee.comboIndex;
+    this.sprite.play(combo === 3 ? 'player_atk3' : combo === 2 ? 'player_atk2' : 'player_atk1');
     this.sprite.chain('player_idle');
     /* small weighty lunge toward the aim */
     const angle = this.aimAngle;
-    const lunge = this.comboIndex === 3 ? 14 : 9;
+    const lunge = combo === 3 ? MELEE.lungeFinisherPx : MELEE.lungePx;
     const moved = moveGrid(this.ctx, this.x, this.y, Math.cos(angle) * lunge, Math.sin(angle) * lunge, BODY_HALF_W, BODY_HALF_H);
     this.setPos(moved.x, moved.y);
     this.faceByAngle(angle);
@@ -166,25 +163,23 @@ export class Player extends Entity {
     this.ctx.play('frost');
   }
 
-  private chargeStart: number | null = null;
-
   beginBoltCharge(): void {
-    if (this.dying || this.chargeStart !== null || this.ctx.now < this.boltReadyAt ||
+    if (this.dying || this.charge.active || this.ctx.now < this.boltReadyAt ||
         this.ctx.now < this.dodgeUntil || this.mana < this.ctx.run.stats.boltMana) return;
-    this.chargeStart = this.ctx.now;
+    this.charge.begin(this.ctx.now);
   }
 
   get boltCharge(): number {
-    return this.chargeStart === null ? 0 : Math.min(1, (this.ctx.now - this.chargeStart) / PLAYER_BASE.boltChargeMs);
+    return this.charge.progress(this.ctx.now);
   }
 
   cancelCharge(): void {
-    this.chargeStart = null;
+    this.charge.cancel();
   }
 
   releaseBolt(): void {
-    if (this.chargeStart === null) return;
-    const charged = this.boltCharge >= 1 && this.mana >= this.ctx.run.stats.boltMana + PLAYER_BASE.boltChargeMana;
+    if (!this.charge.active) return;
+    const charged = this.charge.fullyCharged(this.ctx.now) && this.mana >= this.ctx.run.stats.boltMana + PLAYER_BASE.boltChargeMana;
     this.cancelCharge();
     this.castArcaneBolt(charged);
   }
@@ -268,8 +263,7 @@ export class Player extends Entity {
     this.dodgeVY = (dy / len) * PLAYER_BASE.dodgeSpeed;
     this.dodgeUntil = this.ctx.now + PLAYER_BASE.dodgeMs;
     this.dodgeReadyAt = this.dodgeUntil + stats.dodgeCooldown;
-    this.bufferedUntil = -1;
-    this.atkPhase = 'none';
+    this.melee.cancel();
     this.cancelCharge();
     this.velocityX = 0;
     this.velocityY = 0;
@@ -435,9 +429,9 @@ export class Player extends Entity {
     }
 
     /* animation state */
-    if (this.atkPhase === 'none' && this.ctx.now > this.hurtUntil) {
+    if (this.melee.phase === 'none' && this.ctx.now > this.hurtUntil) {
       this.updateAnim(this.moving ? 'walk' : 'idle');
-    } else if (this.ctx.now <= this.hurtUntil && this.atkPhase === 'none') {
+    } else if (this.ctx.now <= this.hurtUntil && this.melee.phase === 'none') {
       this.updateAnim('hurt');
     }
 
@@ -447,22 +441,19 @@ export class Player extends Entity {
 
   private updateMeleePhase(): void {
     const now = this.ctx.now;
-    if (this.atkPhase === 'none') {
-      if (now <= this.bufferedUntil && now >= Math.max(this.meleeReadyAt, this.dodgeUntil)) this.startMelee();
-      return;
-    }
-    if (this.atkPhase === 'active' && now < this.atkPhaseUntil) this.resolveMeleeHits();
-    if (now < this.atkPhaseUntil) return;
-    if (this.atkPhase === 'windup') {
-      this.atkPhase = 'active';
-      this.atkPhaseUntil = now + 170 * WEAPONS[this.ctx.run.weapon].tempo;
-      this.swingAngle = this.aimAngle;
+    const ev = this.melee.tick(now, this.cadence(), this.ctx.run.stats.meleeCooldown, this.aimAngle, this.dodgeUntil);
+    /* the active window keeps accepting targets that enter the arc */
+    if (this.melee.phase === 'active' && now < this.melee.phaseUntil) this.resolveMeleeHits();
+    if (!ev) return;
+    if (ev.type === 'swing-start') {
+      this.onSwingStart();
+    } else if (ev.type === 'active-start') {
       this.resolveMeleeHits();
-      /* deploy the slash VFX along the aim */
-      const angle = this.aimAngle;
-      const isThird = this.comboIndex === 3;
+      /* deploy the slash VFX along the locked swing angle */
+      const angle = ev.angle;
+      const isThird = this.melee.comboIndex === 3;
       const fxKey = isThird ? 'greatsword' : 'melee_combo';
-      const reach = PLAYER_BASE.meleeRange * WEAPONS[this.ctx.run.weapon].reach * (isThird ? 1.25 : 1);
+      const reach = meleeSectorFor(this.ctx.run.weapon, this.melee.comboIndex).reach;
       this.ctx.fx.spawn(fxKey, this.x + Math.cos(angle) * reach * 0.55, this.y - 8 + Math.sin(angle) * reach * 0.55, {
         angle: Phaser.Math.RadToDeg(angle),
         scale: (isThird ? 1.35 : 1.05) * WEAPONS[this.ctx.run.weapon].reach,
@@ -470,31 +461,21 @@ export class Player extends Entity {
         depth: this.y + 2,
       });
       this.ctx.play('swing');
-    } else if (this.atkPhase === 'active') {
-      this.atkPhase = 'recover';
-      this.atkPhaseUntil = now + 90 * WEAPONS[this.ctx.run.weapon].tempo;
-    } else {
-      this.atkPhase = 'none';
     }
   }
 
   private resolveMeleeHits(): void {
     const stats = this.ctx.run.stats;
-    const isThird = this.comboIndex === 3;
-    const reach = PLAYER_BASE.meleeRange * WEAPONS[this.ctx.run.weapon].reach * (isThird ? 1.25 : 1);
-    const arc = Phaser.Math.DegToRad(PLAYER_BASE.meleeArcDeg * WEAPONS[this.ctx.run.weapon].arc * (isThird ? 1.3 : 1));
-    const aim = this.swingAngle;
+    const isThird = this.melee.comboIndex === 3;
+    const sector = meleeSectorFor(this.ctx.run.weapon, this.melee.comboIndex);
+    const aim = this.melee.swingAngle;
     for (const e of this.ctx.enemies) {
-      if (e.dead || !e.activated || this.atkHitSet.has(e)) continue;
-      const dx = e.x - this.x;
-      const dy = e.y - this.y;
-      const d = Math.hypot(dx, dy);
-      if (d > reach + e.radius) continue;
-      const diff = Math.abs(Phaser.Math.Angle.Wrap(Math.atan2(dy, dx) - aim));
-      if (diff > arc / 2 || !this.lineOfSightFrom(e.x, e.y)) continue;
-      this.atkHitSet.add(e);
+      if (e.dead || !e.activated || this.melee.hitSet.has(e)) continue;
+      if (!inMeleeSector(this.x, this.y, aim, sector.reach, sector.arcRad, e.x, e.y, e.radius)) continue;
+      if (!this.lineOfSightFrom(e.x, e.y)) continue;
+      this.melee.hitSet.add(e);
       const crit = Math.random() < stats.critChance;
-      const comboMult = isThird ? 1.35 : 1;
+      const comboMult = isThird ? MELEE.finisherDamageMult : 1;
       let damage = stats.meleeDamage * comboMult * (crit ? stats.critMult : 1);
       if (e.isBoss || e.isChampion) damage *= stats.bossDmgMult;
       e.takeDamage(damage, { sourceX: this.x, sourceY: this.y, knockback: crit ? 170 : 110, crit });
@@ -523,7 +504,7 @@ export class Player extends Entity {
     const stats = this.ctx.run.stats;
     const frac = (readyAt: number, cd: number): number => Math.max(0, Math.min(1, (readyAt - now) / Math.max(1, cd)));
     return {
-      melee: frac(this.meleeReadyAt, stats.meleeCooldown),
+      melee: frac(this.melee.readyAt, stats.meleeCooldown),
       fireball: frac(this.fireballReadyAt, stats.fireballCooldown),
       frost: frac(this.frostReadyAt, stats.frostCooldown),
       bolt: frac(this.boltReadyAt, stats.boltCooldown),
@@ -534,5 +515,20 @@ export class Player extends Entity {
 
   lineOfSightFrom(x: number, y: number): boolean {
     return gridLineOfSight(this.ctx, x, y, this.x, this.y);
+  }
+
+  /** F3 debug: live melee info for the sector overlay (null when idle). */
+  debugMelee(): { phase: MeleePhase; angle: number; reach: number; arcRad: number; remainingMs: number } | null {
+    const m = this.melee;
+    if (m.phase === 'none') return null;
+    const sector = meleeSectorFor(this.ctx.run.weapon, m.comboIndex);
+    return {
+      phase: m.phase,
+      /* during windup show where the swing would lock if aimed now */
+      angle: m.phase === 'windup' ? this.aimAngle : m.swingAngle,
+      reach: sector.reach,
+      arcRad: sector.arcRad,
+      remainingMs: Math.max(0, m.phaseUntil - this.ctx.now),
+    };
   }
 }

@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
+import { assetPath } from '@/lib/assetPath';
 import type { WeaponId } from '@/game/types';
 import { WEAPONS, PACTS, pactRewardMult } from '@/game/config';
 import { uiClick } from './shared';
@@ -77,7 +78,7 @@ export default function PactPanel() {
               >
                 <span className="rb-sweep" aria-hidden="true" />
                 <img
-                  src={pact.icon}
+                  src={assetPath(pact.icon)}
                   alt=""
                   draggable={false}
                   className={cn('pixelated h-10 w-10 shrink-0', sworn ? 'opacity-100' : 'opacity-75')}

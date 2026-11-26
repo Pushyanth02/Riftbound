@@ -55,8 +55,32 @@ function watchForGameEntry(): void {
 
 const hasGame = gameEntryExists();
 
+/* ------------------------------------------------------------------ */
+/* Riftbound: GitHub Pages static export                               */
+/*                                                                     */
+/* `bun run build:pages` (and the deploy workflow) set NEXT_OUTPUT=    */
+/* "export" plus NEXT_BASE_PATH/NEXT_PUBLIC_BASE_PATH="/Riftbound" so  */
+/* the game exports as a fully static site served from the project      */
+/* Pages sub-path. The default `bun run build` stays a standalone       */
+/* server bundle for self-hosting, and dev is unaffected.              */
+/* ------------------------------------------------------------------ */
+
+const isExport = process.env.NEXT_OUTPUT === "export";
+const basePath = process.env.NEXT_BASE_PATH ?? "";
+
+if (isExport && basePath && !basePath.startsWith("/")) {
+  throw new Error("NEXT_BASE_PATH must start with a slash (e.g. /Riftbound)");
+}
+
 const nextConfig: NextConfig = {
-  output: "standalone",
+  ...(isExport
+    ? {
+        output: "export",
+        trailingSlash: true,
+        images: { unoptimized: true },
+        ...(basePath ? { basePath, assetPrefix: basePath } : {}),
+      }
+    : { output: "standalone" }),
   typescript: {
     ignoreBuildErrors: true,
   },

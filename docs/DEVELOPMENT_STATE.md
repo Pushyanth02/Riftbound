@@ -2,6 +2,54 @@
 
 Gameplay checkpoint `b67049c`, based on `588a48f`. The game builds and runs. The [next-phase plan](NEXT_PHASES.md) gives the implementation order and acceptance checks for the remaining work.
 
+## Combat baseline checkpoint (this build)
+
+Phase 1 tooling is in place. The deterministic combat core was extracted and
+tested, and the F3 overlay can now frame-compare combat internals against the
+presentation layer. GitHub Pages hosting and CI landed with it.
+
+Changes:
+
+- `src/game/combat.ts` is the pure combat core: `MeleeTimeline` (phases,
+  buffering, combo, per-swing hit registry), `ChargeTracker`,
+  `meleeCadenceFor`/`meleeSectorFor` (typed weapon cadence and hit areas from
+  the new `MELEE` config block), `inMeleeSector` geometry, and
+  `projectileStepCount` stepping. `Player` and `Projectile` consume it, so the
+  test suite exercises shipping code.
+- `scripts/combat.test.ts` adds 24 deterministic tests: input buffering
+  (early, late, expired), exact cooldown expiry, dodge cancels in windup/
+  active/recover with buffer clearing, interrupted charging, combo cycling and
+  idle reset, sector entry/exit with at-most-one hit per target per swing,
+  point-blank and two-enemy piercing shots, wall and diagonal-corner checks at
+  8/16/33/50 ms frame intervals, and temporary seals blocking damage from the
+  barrier's far side (then clearing).
+- F3 now draws the melee sector (gold windup ghost, red active arc, dim
+  recovery), the projectile sweep capsule for the frame, and enemy telegraph
+  warning areas with a windup-progress ring (`debugMelee()` on Player,
+  `debugTelegraph()` on Enemy).
+- Static GitHub Pages export (`bun run build:pages`) with the `/Riftbound`
+  base path wired into the Phaser loader and every React overlay icon via
+  `src/lib/assetPath.ts`; `public/.nojekyll` ships with the export. CI
+  (lint, prisma generate, tests, Pages build, artifact checks, `tsc`) and
+  the Pages deploy workflow run on every push to `main`.
+
+Validation:
+
+- `bun install`, `bunx prisma generate`, `bun run lint`, `bun x tsc
+  --noEmit`, `bun test` (28 tests, 35,497 assertions), `bun run build`
+  (standalone) and `bun run build:pages` (static export) all pass on a fresh
+  clone.
+- The static export was served under `/Riftbound/` (scripts/serve-pages.ts)
+  and driven in headless Chromium: menu renders, pacts screen, run start,
+  WASD movement, melee, fireball, dodge, pause and resume all work with zero
+  page errors and zero console errors, with `/Riftbound`-prefixed asset URLs.
+- The F3 overlay was exercised on the dev server during live combat; the
+  melee sector, player/enemy bodies, and warning areas render as designed.
+
+Outstanding (per the plan): unassisted full runs per weapon with clear-time
+and death-cause recording, windup/timing tuning informed by those runs, and
+the phase 1 acceptance recording of one unassisted completion per weapon.
+
 ## Playable changes
 
 - Combat uses pixel-to-tile ray traversal, short projectile travel steps, a 160 ms melee buffer, active-frame damage, locked swing direction, acceleration and braking. Dodge cancels a swing. Development F3 shows feet, hurtboxes, projectiles and sealed tiles.

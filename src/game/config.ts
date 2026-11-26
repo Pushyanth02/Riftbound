@@ -11,6 +11,26 @@ export const TILE = 32;
 export const ZOOM_MIN = 2;
 export const ZOOM_MAX = 3.2;
 
+/* ------------------------------ melee cadence ------------------------------ */
+
+/** Frame-tuned melee timing and hit-area shape (phase-1 tuning surface).
+    Durations scale with the weapon tempo; these are the sword baseline.
+    The windup is the gap between input and the first damaging frame, the
+    active window is how long the arc keeps accepting new targets, and the
+    recovery must expire before the next buffered swing can start. */
+export const MELEE = {
+  windupMs: 70,
+  activeMs: 170,
+  recoverMs: 90,
+  /** forward lunge applied at swing start (px), swings 1-2 and finisher */
+  lungePx: 9,
+  lungeFinisherPx: 14,
+  /** finisher (third combo hit) reach / arc / damage multipliers */
+  finisherReachMult: 1.25,
+  finisherArcMult: 1.3,
+  finisherDamageMult: 1.35,
+} as const;
+
 export const PALETTE = {
   ink: 0x140e1d,
   stone: 0x25202f,

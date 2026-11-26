@@ -1,12 +1,15 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.2.1",
+  "name": "riftbound",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && node scripts/package-standalone.mjs",
+    "build:static": "NEXT_OUTPUT=export next build",
+    "build:pages": "NEXT_OUTPUT=export NEXT_BASE_PATH=/Riftbound NEXT_PUBLIC_BASE_PATH=/Riftbound next build",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
+    "test": "bun test scripts/",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

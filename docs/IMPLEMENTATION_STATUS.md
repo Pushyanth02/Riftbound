@@ -61,6 +61,23 @@
 - **Souls and soul shards**: per-run soul pickups and persistent shard
   rewards scaled by pact difficulty
 
+### Combat baseline + deployment pass (2026-11-26)
+
+- **Pure combat core** (`src/game/combat.ts`): `MeleeTimeline`,
+  `ChargeTracker`, weapon cadence/hit-area helpers and projectile step
+  planning, consumed by the live entities and exercised by 24 deterministic
+  tests (`scripts/combat.test.ts`).
+- **Typed melee tuning surface**: the `MELEE` config block (windup/active/
+  recover, lunges, finisher multipliers) replaces inline magic numbers.
+- **Extended F3 overlay**: melee sector with locked swing angle, projectile
+  sweep capsules, enemy telegraph warning areas with progress rings.
+- **Static GitHub Pages export** (`bun run build:pages`) with `/Riftbound`
+  base-path resolution in both the Phaser loader and every React overlay
+  icon (`src/lib/assetPath.ts`); `public/.nojekyll` ships with the export.
+- **CI + Pages deploy workflows** (`.github/workflows/`): lint, prisma
+  generate, tests, Pages build, artifact checks and `tsc --noEmit` on every
+  push/PR; deploy on `main`.
+
 ### Performance pass (verified 2026-11-26)
 - Zero per-frame array allocation in the update loop (in-place compaction)
 - Scratch-vector reuse in movement, separation and targeting hot paths
@@ -100,7 +117,6 @@
 - **Animated water tiles** (animated.png) are processed but not placed.
 - **Luck creature** asset processed but unused.
 - **Mobile touch controls**: not implemented; desktop input only.
-- **Production build**: blocked by sandbox policy; types and lint are clean.
 
 ## Not implemented
 

@@ -4,6 +4,7 @@
 
 import type { RunStats } from '@/game/types';
 import { PACT_MAP } from '@/game/config';
+import { assetPath } from '@/lib/assetPath';
 import { formatTime } from './shared';
 import { GoldRule } from './shared';
 
@@ -33,7 +34,7 @@ export function RunSummary({ stats }: { stats: RunStats }) {
           <div className="flex flex-wrap items-center justify-center gap-2">
             {stats.relics.map((r) => (
               <span key={r.id} className="flex items-center gap-1.5 border border-[rgba(217,173,98,0.3)] bg-[rgba(24,19,36,0.85)] px-2 py-1" title={r.name}>
-                <img src={r.icon} alt="" className="pixelated h-5 w-5" draggable={false} />
+                <img src={assetPath(r.icon)} alt="" className="pixelated h-5 w-5" draggable={false} />
                 <span className="font-body text-[11px] text-[#b7ab97]">{r.name}</span>
               </span>
             ))}
@@ -55,7 +56,7 @@ export function RunSummary({ stats }: { stats: RunStats }) {
                   className="flex items-center gap-1.5 border border-[rgba(217,82,82,0.35)] bg-[rgba(24,19,36,0.85)] px-2 py-1"
                   title={pact ? `${pact.name} — ${pact.desc}` : undefined}
                 >
-                  <img src={pact?.icon ?? '/assets/icons/relic_shield.png'} alt="" className="pixelated h-5 w-5" draggable={false} />
+                  <img src={assetPath(pact?.icon ?? '/assets/icons/relic_shield.png')} alt="" className="pixelated h-5 w-5" draggable={false} />
                   <span className="font-body text-[11px] text-[#b7ab97]">{pact?.name ?? id}</span>
                 </span>
               );

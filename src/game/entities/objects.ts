@@ -2,6 +2,7 @@
    merchant, boon shrines, rift barriers). */
 import * as Phaser from 'phaser';
 import { TILE } from '../config';
+import { projectileStepCount } from '../combat';
 import type { GameContext, ProjectileSpawn } from '../ctx';
 import { Entity, dist2, gridLineOfSight } from './base';
 import { RELICS, type RelicDef } from '../config';
@@ -37,6 +38,9 @@ export class Projectile extends Entity {
   burn?: { dps: number; ms: number };
   pierce = 0;
   life = 2600;
+  /** position at the start of the current frame (F3 sweep overlay) */
+  sweptFromX = 0;
+  sweptFromY = 0;
   private hitSet = new Set<import('./enemy').Enemy>();
 
   constructor(ctx: GameContext, spawn: ProjectileSpawn) {
@@ -62,11 +66,15 @@ export class Projectile extends Entity {
     this.sprite.setDepth(spawn.y + 500);
     this.sprite.play(cfg.animKey);
     this.setPos(spawn.x, spawn.y);
+    this.sweptFromX = spawn.x;
+    this.sweptFromY = spawn.y;
   }
 
   update(dt: number): void {
+    this.sweptFromX = this.x;
+    this.sweptFromY = this.y;
     const travel = Math.hypot(this.vx, this.vy) * dt / 1000;
-    const steps = Math.max(1, Math.ceil(travel / (TILE / 4)));
+    const steps = projectileStepCount(travel, TILE);
     for (let i = 0; i < steps && !this.dead; i++) this.advance(dt / steps);
   }
 

@@ -90,6 +90,30 @@ and zero uncaught exceptions. Earlier sessions surfaced and fixed:
 - Inactive-room enemies skip their AI tick until activated.
 - Ambient density halves under the Reduced Effects setting.
 
+## Re-verification after the combat-baseline and Pages pass (2026-11-26)
+
+Verified after extracting the pure combat core, extending F3 and adding the
+static GitHub Pages export:
+
+- `bun run lint`, `bun x tsc --noEmit` (after `bunx prisma generate`) and
+  `bun test` (28 tests, 35,497 assertions across
+  `scripts/gameplay.test.ts` and `scripts/combat.test.ts`) pass clean.
+- Both build modes succeed: `bun run build` (standalone server bundle with
+  the packaging step) and `bun run build:pages` (static export with the
+  `/Riftbound` base path).
+- The Pages export was served locally under `/Riftbound/`
+  (`scripts/serve-pages.ts`, port 4173) and driven in headless Chromium:
+  menu renders, pact selection, run start, WASD movement, melee, fireball,
+  dodge and pause all work with zero page errors and zero console
+  errors/warnings; Phaser booted WebGL and loaded every manifest/texture
+  through the base-prefixed URLs.
+- F3 was enabled during live combat on the dev server; the melee sector
+  (gold windup, red active), body circles and sweep lines render as
+  designed (screenshot-reviewed).
+- CI and Pages deploy workflows are defined in `.github/workflows/`; the
+  Pages environment must be selected once in the repository settings
+  (Settings > Pages > Source: GitHub Actions) for the first deployment.
+
 ## Re-verification after the optimization pass (2026-11-26)
 
 The full golden path was replayed in the automated browser after the

@@ -5,6 +5,7 @@
 <h3 align="center">A dark-fantasy pixel-art action roguelike that runs entirely in your browser.</h3>
 
 <p align="center">
+  <a href="https://pushyanth02.github.io/Riftbound/">Play it now</a>&nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#quick-start">Quick Start</a>&nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#features">Features</a>&nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#controls">Controls</a>&nbsp;&nbsp;·&nbsp;&nbsp;
@@ -20,6 +21,7 @@
   <a href="#"><img alt="React 19" src="https://img.shields.io/badge/React-19-1b2a3a?style=flat-square&logo=react"></a>
   <a href="#"><img alt="Platform" src="https://img.shields.io/badge/platform-web%20browser-3d7a4f?style=flat-square"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-d9ad62?style=flat-square"></a>
+  <a href="https://github.com/Pushyanth02/Riftbound/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Pushyanth02/Riftbound/ci.yml?branch=main&style=flat-square&label=ci"></a>
 </p>
 
 <p align="center">
@@ -69,6 +71,7 @@ the keep rearranges itself for the next fool. Earn soul shards either way.
 | **Persistence** | Runs save to localStorage; continue where you fell |
 | **Audio** | Fully synthesized Web Audio soundtrack and SFX - zero audio assets, zero loading |
 | **Accessibility** | Reduced-FX mode, adjustable mix, keyboard remap-ready controls, ARIA-labelled UI |
+| **QA** | 28 deterministic gameplay/combat tests, CI on every push, F3 combat-timing debug overlay |
 
 ## Quick Start
 
@@ -83,13 +86,26 @@ bun run dev
 The game lives at `/` - the only route. It needs a modern browser with WebGL.
 
 ```bash
-# production build
+# production build (standalone server bundle)
 bun run build
 bun run start
 
-# lint / typecheck
+# static export for GitHub Pages (also what CI builds)
+bun run build:pages   # emits ./out with the /Riftbound base path
+
+# lint / typecheck / deterministic tests
 bun run lint
-bunx tsc --noEmit
+bun x tsc --noEmit
+bun test
+```
+
+Every push to `main` runs CI (lint, typecheck, tests, Pages build) and deploys
+the static export to [GitHub Pages](https://pushyanth02.github.io/Riftbound/).
+To serve a Pages build locally exactly as deployed:
+
+```bash
+bun run build:pages
+bun scripts/serve-pages.ts 4173   # http://localhost:4173/Riftbound/
 ```
 
 ## Controls
@@ -127,13 +143,16 @@ Sworn before each run, stackable for a richer soul-shard harvest:
 
 ```
 src/game/              Phaser core - scenes, entities, dungeon, combat, audio
+  combat.ts           Pure, deterministic combat core (shared with the tests)
   scenes/              BootScene (asset pipeline) + GameScene (the run)
   entities/            Player, enemies, champions, boss, pickups, props
   dungeon/             Seeded generator + tile renderer
 src/components/game/   React UI overlays - menu, HUD, modals, end screens
 src/lib/gameStore.ts   Zustand store bridging the game event bus to React
+src/lib/assetPath.ts   Deployment base-path mapping for public assets
 public/assets/         Processed sprites + machine-readable manifests
-scripts/asset-tools/   Asset pipeline (rebuilds public/assets from packs)
+scripts/               Tests, asset pipeline, Pages build helpers
+.github/workflows/     CI + GitHub Pages deploy
 docs/                  Design docs, QA reports, performance notes
 ```
 
@@ -151,6 +170,12 @@ React UI      --(bus.cmd)---->  GameScene command handler
 The game layer boots behind a timeout watchdog and a boot-error surface, so an
 engine failure degrades to a retry screen instead of an infinite loader.
 
+The same build ships as a standalone server bundle or a fully static export:
+public asset URLs resolve through a deployment base path
+(`src/lib/assetPath.ts` for the React overlays, the Phaser loader baseURL for
+textures and manifests), so the static export works under GitHub Pages'
+`/Riftbound` sub-path without a special asset fork.
+
 ## Asset Pipeline
 
 `python3 scripts/asset-tools/build_assets.py` inspects the source sprite packs,
@@ -164,6 +189,8 @@ for attribution.
 
 | Doc | Contents |
 |---|---|
+| [Next phases](docs/NEXT_PHASES.md) | The phased roadmap and acceptance checks |
+| [Development state](docs/DEVELOPMENT_STATE.md) | Checkpoints: what shipped, how it was verified, what is open |
 | [Art direction](docs/ART_DIRECTION.md) | Palette, typography, UI language |
 | [Asset licenses](docs/ASSET_LICENSES.md) | Attribution for every shipped sprite pack |
 | [Asset manifest](docs/ASSET_MANIFEST.md) | How the pipeline output maps into the game |

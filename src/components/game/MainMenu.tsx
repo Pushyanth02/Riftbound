@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
+import { assetPath } from '@/lib/assetPath';
 import { gameAudio } from '@/game/audio';
 import { uiClick } from './shared';
 
@@ -48,7 +49,7 @@ export default function MainMenu() {
       <div className="rb-menu-fallback absolute inset-0" />
       {artOk && (
         <img
-          src="/assets/menu/keyart.png"
+          src={assetPath('/assets/menu/keyart.png')}
           alt=""
           onError={() => setArtOk(false)}
           draggable={false}
@@ -150,7 +151,7 @@ export default function MainMenu() {
       <footer className="absolute bottom-4 left-5 right-5 flex items-end justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
           <p className="flex items-center gap-1.5 font-body text-xs text-[#8d8398]">
-            <img src="/assets/icons/ghost.png" alt="" draggable={false} className="pixelated h-4 w-4 shrink-0" />
+            <img src={assetPath('/assets/icons/ghost.png')} alt="" draggable={false} className="pixelated h-4 w-4 shrink-0" />
             <span className="tabular-nums text-[#b49ae8]">Soul shards: {recordsReady ? shards : 0}</span>
           </p>
           <p className="font-body text-xs text-[#8d8398]">

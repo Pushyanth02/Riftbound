@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useGameStore } from '@/lib/gameStore';
+import { assetPath } from '@/lib/assetPath';
 import { uiClick } from './shared';
 import { Corners, GoldRule, Keycap } from './shared';
 import { cn } from '@/lib/utils';
@@ -48,7 +49,7 @@ export default function LevelUpModal() {
               className="rb-card-sweep group relative flex flex-col items-center gap-3 border border-[rgba(217,173,98,0.4)] bg-[rgba(28,22,41,0.96)] p-6 text-center transition-[border-color,transform] duration-200 hover:-translate-y-1 hover:border-[var(--gold)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gold)]"
             >
               <Corners />
-              <img src={choice.icon} alt="" className="pixelated h-16 w-16" draggable={false} />
+              <img src={assetPath(choice.icon)} alt="" className="pixelated h-16 w-16" draggable={false} />
               <h3 className="font-display text-base font-bold tracking-[0.1em] text-[var(--bone)]">{choice.name}</h3>
               <p className="min-h-[40px] font-body text-[13px] leading-snug text-[#b7ab97]">{choice.desc}</p>
 

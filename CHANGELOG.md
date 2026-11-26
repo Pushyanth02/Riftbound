@@ -4,6 +4,50 @@ All notable changes to RIFTBOUND are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to semantic versioning for its tagged releases.
 
+## [1.1.0] - Combat Baseline & GitHub Pages
+
+### Added
+
+- **Play in the browser** - the game is published as a fully static export
+  to GitHub Pages (https://pushyanth02.github.io/Riftbound/), rebuilt on
+  every push to `main` by the deploy workflow.
+- **CI pipeline** - lint, typecheck, deterministic tests and the Pages
+  export build run on every push and pull request
+  (`.github/workflows/ci.yml`).
+- **Deterministic combat core** (`src/game/combat.ts`) - the melee phase
+  machine, input buffering, combo counting, per-swing hit registry, bolt
+  charge state and projectile step planning extracted into a pure
+  TypeScript module shared by the entities and the test suite.
+- **24 deterministic combat tests** (`scripts/combat.test.ts`) - early/late/
+  expired input buffering, exact cooldown expiry, dodge cancels in every
+  swing phase, interrupted charging, combo cycling and reset, slash-arc
+  entry/exit with one-hit-per-swing, point-blank and piercing projectile
+  shots, wall/corner tunneling checks at multiple frame intervals, and
+  barrier far-side damage blocking through temporary seals.
+- **Extended F3 debug overlay** - draws the live melee sector (gold during
+  windup, red while active, dim in recovery), the per-frame projectile
+  sweep capsule, and enemy windup warning areas with a windup-progress
+  ring, so combat timing can be compared against sprite/sound/effect on
+  the same frame.
+- **Typed melee tuning config** (`MELEE` in `config.ts`) - windup/active/
+  recover durations, lunges and finisher multipliers are now a documented,
+  single tuning surface instead of inline magic numbers.
+
+### Changed
+
+- Player melee/charge state now delegates to the shared `MeleeTimeline`
+  and `ChargeTracker` primitives; behavior is unchanged, but the timing
+  policy is testable and frame-exact.
+- Projectile stepping uses the shared `projectileStepCount` helper.
+- All React overlay icons and the Phaser loader resolve public assets
+  through a deployment base path, enabling sub-path static hosting.
+- `package.json` renamed to `riftbound` with `test`, `build:static` and
+  `build:pages` scripts.
+
+### Removed
+
+- Unused placeholder API route (incompatible with static export).
+
 ## [1.0.0] - The Descent Update
 
 ### Added

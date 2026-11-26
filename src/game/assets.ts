@@ -1,5 +1,6 @@
 /* Asset loading + animation factory driven by the generated manifests. */
 import * as Phaser from 'phaser';
+import { BASE_PATH } from '../lib/assetPath';
 
 export interface FxMeta {
   file: string;
@@ -48,6 +49,9 @@ export function textureKeyForEffect(key: EffectKey): string {
 }
 
 export function loadManifestAssets(scene: Phaser.Scene): void {
+  /* GitHub Pages deployments serve from a sub-path; every texture and
+     manifest URL below is root-relative, so one baseURL covers them all */
+  scene.load.setBaseURL(BASE_PATH);
   scene.load.json('meta:effects', '/assets/manifests/effects.json');
   scene.load.json('meta:characters', '/assets/manifests/characters.json');
   scene.load.json('meta:icons', '/assets/manifests/icons.json');

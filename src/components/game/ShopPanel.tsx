@@ -1,6 +1,7 @@
 'use client';
 
 import { useGameStore } from '@/lib/gameStore';
+import { assetPath } from '@/lib/assetPath';
 import { uiClick } from './shared';
 import { Corners, DialogShell, GoldRule } from './shared';
 import { cn } from '@/lib/utils';
@@ -25,7 +26,7 @@ export default function ShopPanel() {
         <GoldRule className="mx-auto mt-3" />
 
         <div className="mt-4 flex items-center justify-center gap-2">
-          <img src="/assets/icons/gold.png" alt="" className="pixelated h-5 w-5" draggable={false} />
+          <img src={assetPath('/assets/icons/gold.png')} alt="" className="pixelated h-5 w-5" draggable={false} />
           <span className="font-display text-base font-bold tabular-nums text-[var(--gold)]">{shop.gold}</span>
           <span className="rb-smallcaps text-[9px] text-[#8d8398]">your gold</span>
         </div>
@@ -42,7 +43,7 @@ export default function ShopPanel() {
                 )}
               >
                 <img
-                  src={ware.icon}
+                  src={assetPath(ware.icon)}
                   alt=""
                   className={cn('pixelated h-12 w-12 shrink-0', ware.sold && 'opacity-35 grayscale')}
                   draggable={false}
@@ -55,7 +56,7 @@ export default function ShopPanel() {
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
                   <span className="flex items-center gap-1.5">
-                    <img src="/assets/icons/gold.png" alt="" className="pixelated h-4 w-4" draggable={false} />
+                    <img src={assetPath('/assets/icons/gold.png')} alt="" className="pixelated h-4 w-4" draggable={false} />
                     <span className="font-body text-sm font-semibold tabular-nums text-[var(--gold)]">{ware.price}</span>
                   </span>
                   {ware.sold ? (

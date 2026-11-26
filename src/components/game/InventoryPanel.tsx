@@ -1,6 +1,7 @@
 'use client';
 
 import { useGameStore } from '@/lib/gameStore';
+import { assetPath } from '@/lib/assetPath';
 import { PATRONS } from '@/game/config';
 import { uiClick } from './shared';
 import { Corners, DialogShell, GoldRule } from './shared';
@@ -38,7 +39,7 @@ export default function InventoryPanel() {
               <ul className="rb-scroll flex max-h-[44vh] flex-col gap-2 overflow-y-auto pr-1">
                 {hud.relics.map((r) => (
                   <li key={r.id} className="flex items-start gap-3 border border-[rgba(217,173,98,0.22)] bg-[rgba(24,19,36,0.8)] p-3">
-                    <img src={r.icon} alt="" className="pixelated mt-0.5 h-9 w-9 shrink-0" draggable={false} />
+                    <img src={assetPath(r.icon)} alt="" className="pixelated mt-0.5 h-9 w-9 shrink-0" draggable={false} />
                     <div>
                       <p className="font-display text-sm font-bold tracking-wide text-[var(--bone)]">{r.name}</p>
                       <p className="font-body text-xs leading-snug text-[#a89dbd]">{r.desc}</p>
@@ -60,7 +61,7 @@ export default function InventoryPanel() {
                       className="flex items-start gap-3 border border-[rgba(217,173,98,0.22)] bg-[rgba(24,19,36,0.8)] p-3"
                       style={{ borderLeft: `3px solid ${PATRONS[b.patron].color}` }}
                     >
-                      <img src={b.icon} alt="" className="pixelated mt-0.5 h-9 w-9 shrink-0" draggable={false} />
+                      <img src={assetPath(b.icon)} alt="" className="pixelated mt-0.5 h-9 w-9 shrink-0" draggable={false} />
                       <div>
                         <p className="font-display text-sm font-bold tracking-wide text-[var(--bone)]">
                           {b.name}

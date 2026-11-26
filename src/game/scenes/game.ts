@@ -13,7 +13,7 @@ import { generateDungeon, type Dungeon } from '../dungeon/generator';
 import { buildDungeon, type BuiltDungeon } from '../dungeon/builder';
 import { gridLineOfSight } from '../sight';
 import { Player } from '../entities/player';
-import { Boss, Champion, Enemy } from '../entities/enemy';
+import { Boss, Champion, Enemy, type TelegraphDebug } from '../entities/enemy';
 import { Barrier, BoonShrine, Chest, Merchant, Pickup, Portal, Projectile, Shrine, type Interactable, type PickupKind } from '../entities/objects';
 import type { GameContext, ProjectileSpawn } from '../ctx';
 
@@ -1036,8 +1036,82 @@ export class GameScene extends Phaser.Scene implements GameContext {
   }
 
   /* ------------------------------------------------------------------ */
-  /* update loop                                                         */
+  /* F3 debug overlay                                                    */
   /* ------------------------------------------------------------------ */
+
+  /** Development overlay (F3): bodies, the live melee sector, projectile
+      sweeps and enemy windup warning areas, so combat timing can be
+      compared against the sprite, sound and effect on the same frame. */
+  private drawDebugOverlay(gfx: Phaser.GameObjects.Graphics): void {
+    gfx.clear();
+    /* player body + feet */
+    gfx.lineStyle(1, 0x65d9d0);
+    gfx.strokeCircle(this.player.x, this.player.y, this.player.radius);
+    gfx.strokeRect(this.player.x - 11, this.player.y - 7, 22, 14);
+
+    /* enemy bodies */
+    gfx.lineStyle(1, 0xd95252);
+    for (const e of this.enemies) if (e.activated && !e.dead) gfx.strokeCircle(e.x, e.y, e.radius);
+
+    /* projectile bodies + the swept capsule for this frame's travel */
+    for (const p of this.projectiles) {
+      gfx.lineStyle(1, 0xd9ad62, 0.85);
+      gfx.lineBetween(p.sweptFromX, p.sweptFromY, p.x, p.y);
+      gfx.strokeCircle(p.sweptFromX, p.sweptFromY, p.radius);
+      gfx.strokeCircle(p.x, p.y, p.radius);
+    }
+
+    /* sealed gate tiles (barriers block movement and line of sight) */
+    gfx.lineStyle(1, 0x9868e8, 0.9);
+    for (const tile of this.sealedTiles) {
+      gfx.strokeRect((tile % this.dungeon.width) * TILE, Math.floor(tile / this.dungeon.width) * TILE, TILE, TILE);
+    }
+
+    /* melee sector: gold while winding up (where the swing would lock),
+       red while live (the locked arc), dim during recovery */
+    const melee = this.player.debugMelee();
+    if (melee) {
+      const half = melee.arcRad / 2;
+      const a0 = melee.angle - half;
+      const a1 = melee.angle + half;
+      const color = melee.phase === 'windup' ? 0xd9ad62 : melee.phase === 'active' ? 0xd95252 : 0x65d9d0;
+      const alpha = melee.phase === 'active' ? 0.22 : melee.phase === 'windup' ? 0.1 : 0.05;
+      const y = this.player.y - 8;
+      gfx.fillStyle(color, alpha);
+      gfx.slice(this.player.x, y, melee.reach, a0, a1, false);
+      gfx.fillPath();
+      gfx.lineStyle(1, color, 0.85);
+      gfx.slice(this.player.x, y, melee.reach, a0, a1, false);
+      gfx.strokePath();
+      if (melee.remainingMs > 0) {
+        gfx.lineStyle(2, color, 0.9);
+        gfx.beginPath();
+        gfx.arc(this.player.x, this.player.y, melee.reach + 6, melee.angle, melee.angle + half * 2, false);
+        gfx.strokePath();
+      }
+    }
+
+    /* enemy windup warning areas + a progress ring for the remaining windup */
+    for (const e of this.enemies) {
+      if (!e.activated || e.dead) continue;
+      const t: TelegraphDebug | null = e.debugTelegraph();
+      if (!t) continue;
+      if (t.kind === 'lunge' || t.kind === 'aim') {
+        gfx.lineStyle(3, 0xd95252, 0.3);
+        gfx.lineBetween(t.x, t.y - 8, t.tx, t.ty - 8);
+      }
+      gfx.fillStyle(0xd95252, 0.14);
+      gfx.fillCircle(t.tx, t.ty - 8, t.radius);
+      gfx.lineStyle(1, 0xd95252, 0.75);
+      gfx.strokeCircle(t.tx, t.ty - 8, t.radius);
+      const total = Math.max(1, t.endsAt - t.startedAt);
+      const progress = Math.min(1, Math.max(0, (this.now - t.startedAt) / total));
+      gfx.lineStyle(2, 0xe8dcc9, 0.9);
+      gfx.beginPath();
+      gfx.arc(t.tx, t.ty - 8, t.radius + 5, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2, false);
+      gfx.strokePath();
+    }
+  }
 
   update(_time: number, delta: number): void {
     if (this.state !== 'running' || !this.dungeon) {
@@ -1066,17 +1140,6 @@ export class GameScene extends Phaser.Scene implements GameContext {
     }
 
     this.player.update(dt);
-    if (this.debugHitboxes) {
-      const gfx = this.debugHitboxes.clear();
-      gfx.lineStyle(1, 0x65d9d0).strokeCircle(this.player.x, this.player.y, this.player.radius);
-      gfx.strokeRect(this.player.x - 11, this.player.y - 7, 22, 14);
-      gfx.lineStyle(1, 0xd95252);
-      for (const e of this.enemies) if (e.activated && !e.dead) gfx.strokeCircle(e.x, e.y, e.radius);
-      for (const p of this.projectiles) gfx.strokeCircle(p.x, p.y, p.radius);
-      for (const tile of this.sealedTiles) {
-        gfx.strokeRect(tile % this.dungeon.width * TILE, Math.floor(tile / this.dungeon.width) * TILE, TILE, TILE);
-      }
-    }
 
     /* enemies: activated ones tick fully */
     for (const e of this.enemies) {
@@ -1121,6 +1184,9 @@ export class GameScene extends Phaser.Scene implements GameContext {
       }
       this.projectiles.length = w;
     }
+
+    /* redraw the F3 overlay once entities have settled this frame */
+    if (this.debugHitboxes) this.drawDebugOverlay(this.debugHitboxes);
 
     /* pickups */
     for (const p of this.pickups) p.update(dt);
