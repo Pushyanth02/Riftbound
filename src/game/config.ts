@@ -289,7 +289,7 @@ export const CHAMPIONS: Record<number, ChampionDef> = {
 
 /* ------------------------------ enemies ------------------------------ */
 
-export type EnemyKind = 'orc' | 'bloodmon' | 'demon' | 'orcElite';
+export type EnemyKind = 'orc' | 'bloodmon' | 'demon' | 'orcElite' | 'sentinel' | 'chanter';
 
 export interface EnemyDef {
   kind: EnemyKind;
@@ -303,7 +303,7 @@ export interface EnemyDef {
   scale: number;
   xp: number;
   gold: [number, number];
-  behavior: 'melee' | 'lunge' | 'ranged' | 'heavy';
+  behavior: 'melee' | 'lunge' | 'ranged' | 'heavy' | 'guard' | 'summoner';
   attackRange: number;
   attackWindup: number; // ms telegraph
   attackCooldown: number;
@@ -331,7 +331,51 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     maxHp: 78, damage: 16, speed: 52, size: 30, scale: 1.3, xp: 30, gold: [8, 16],
     behavior: 'heavy', attackRange: 66, attackWindup: 780, attackCooldown: 2300, knockbackResist: 0.55,
   },
+  sentinel: {
+    kind: 'sentinel', sprite: 'orc', name: 'Crypt Sentinel', intro: 'Shield first. Regret later.',
+    maxHp: 62, damage: 13, speed: 44, size: 28, scale: 1.2, xp: 22, gold: [6, 12],
+    behavior: 'guard', attackRange: 78, attackWindup: 900, attackCooldown: 2600, knockbackResist: 0.45,
+  },
+  chanter: {
+    kind: 'chanter', sprite: 'demon', name: 'Rift Chanter', intro: 'It sings the seal open.',
+    maxHp: 30, damage: 9, speed: 52, size: 24, scale: 1.05, xp: 16, gold: [4, 9],
+    behavior: 'summoner', attackRange: 250, attackWindup: 2400, attackCooldown: 4200, knockbackResist: 0,
+  },
 };
+
+/* ------------------------------ counters ------------------------------ */
+
+/** Crypt Sentinel: shielded guard whose flank opens after a committed bash. */
+export const GUARD = {
+  /** damage reduction from sources inside the frontal 100-degree arc */
+  frontalDR: 0.65,
+  /** how long the guard stays exposed after its bash (recovery window) */
+  exposedMs: 1500,
+  /** bonus damage taken while exposed */
+  exposedBonus: 0.5,
+  /** bash lunge travel (px) */
+  bashDistance: 130,
+  /** bash lunge speed (px/s) */
+  bashSpeed: 340,
+} as const;
+
+/** Rift Chanter: interruptible summoner with a room-local summon cap. */
+export const CHANTER = {
+  /** stagger applied when the cast is interrupted */
+  interruptStaggerMs: 620,
+  /** retreat distance after an interrupted cast (px) */
+  retreatDistance: 110,
+  /** room-local cap on living summoned minions */
+  roomSummonCap: 4,
+  /** minions summoned per completed cast (clamped by the room cap) */
+  perCast: 2,
+  /** volley loosed instead of a cast while at the summon cap */
+  volleyCount: 3,
+  volleySpeed: 200,
+} as const;
+
+/** Hard cap on living enemies inside any one room (spawn budgets + summons). */
+export const ROOM_ENEMY_CAP = 8;
 
 /* ------------------------------ boss ------------------------------ */
 
@@ -388,6 +432,8 @@ export const FLOORS: FloorTheme[] = [
       { kind: 'bloodmon', weight: 3 },
       { kind: 'demon', weight: 3 },
       { kind: 'orcElite', weight: 1 },
+      { kind: 'sentinel', weight: 2 },
+      { kind: 'chanter', weight: 1 },
     ],
     eliteChance: 0.14,
     tint: 0xbdb6cf,
@@ -399,9 +445,11 @@ export const FLOORS: FloorTheme[] = [
     enemyBudget: 18,
     enemyPool: [
       { kind: 'orc', weight: 3 },
-      { kind: 'bloodmon', weight: 3 },
+      { kind: 'bloodmon', weight: 2 },
       { kind: 'demon', weight: 4 },
       { kind: 'orcElite', weight: 2 },
+      { kind: 'sentinel', weight: 3 },
+      { kind: 'chanter', weight: 2 },
     ],
     eliteChance: 0.2,
     tint: 0xa89cc4,
@@ -421,7 +469,59 @@ export const ROOM_NAMES = {
   encounter: ['Whispering Alcove', 'The Watcher\u2019s Rest', 'Hollowed Shrine'],
   boss: ['Chamber of the Seal'],
   exit: ['The Descent'],
+  challenge: ['The Hourglass Verdict', 'Trial of the Bell'],
+  trap: ['The Grinding Gallery', 'Spikebottom Hollow'],
+  secret: ['The Sealed Reliquary', 'What the Walls Kept'],
 };
+
+/* ------------------------------ optional rooms ------------------------------ */
+
+/** Tuning for the authored optional encounters (phase 2). Each one has an
+    entry cue, an exit condition, a reward budget and a route around it:
+    the main objective never depends on them. */
+export const OPTIONAL_ROOMS = {
+  /** timed challenge: gate seals, timer starts; clear in time or it fails
+      open (no reward, gates release) so the route always continues */
+  challenge: {
+    timeMs: 32_000,
+    /** extra enemies added on top of the room budget */
+    extraEnemies: 2,
+    /** reward on success: guaranteed relic + this gold + souls */
+    rewardGold: [40, 60] as [number, number],
+    rewardSouls: 4,
+  },
+  /** trap chamber: telegraphed floor plates guard a rich chest; no gate
+      lock, the player can leave at any time */
+  trap: {
+    plates: [4, 6] as [number, number],
+    /** warning time before the plate fires (telegraph) */
+    warnMs: 850,
+    /** time the spikes stay out */
+    fireMs: 300,
+    /** plate cycle cooldown while armed */
+    coolMs: 1500,
+    plateDamage: 15,
+    plateRadius: 34,
+    /** guard enemies in the chamber */
+    enemies: 1,
+  },
+  /** secret branch: cracked wall dead-end with a boon shrine + bounty;
+    the wall is a map clue from the adjacent room until opened */
+  secret: {
+    gold: [35, 55] as [number, number],
+    souls: 2,
+  },
+} as const;
+
+/* ------------------------------ shop ------------------------------ */
+
+export const SHOP = {
+  /** reroll stock per merchant visit window (resets each floor) */
+  maxRerolls: 2,
+  /** first reroll price, then +escalation per use */
+  rerollBase: 12,
+  rerollStep: 8,
+} as const;
 
 /* ------------------------------ xp curve ------------------------------ */
 

@@ -4,6 +4,82 @@ All notable changes to RIFTBOUND are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to semantic versioning for its tagged releases.
 
+## [1.2.0] - Phases 2-6: Optional Routes, Counters & Economy
+
+### Added
+
+- **Room templates with reserved zones** - authored layouts (twin aisles,
+  staggered cover, broken colonnade, watch pillar, sanctum, trial ring,
+  spike gallery, vault, reliquary) drive room dressing; gate thresholds,
+  the boss landing and interaction approach tiles are reserved before any
+  prop, pillar or spawn is placed (`TEMPLATES` + `Reservations` in
+  `dungeon/generator.ts`).
+- **Timed challenge rooms** - the trial seals the gates, starts a 32 s
+  countdown (HUD chip + objective line), fails open with no reward when
+  the sand runs out and pays a guaranteed relic + gold + souls on an
+  in-time clear (`OPTIONAL_ROOMS.challenge`).
+- **Trap chambers** - 4-6 telegraphed floor plates cycle warn 850 ms ->
+  fire 300 ms -> cool 1.5 s while the player is inside; the room never
+  locks and a guarded chest waits at the far end (`TrapPlate`).
+- **Secret branches** - a cracked-wall mouth in a free slot hides a boon
+  shrine, bounty and souls behind solid topology; the map shows a dashed
+  `?` clue until the wall breaks, then reveals the hidden corridor
+  (`CrackedWall`, `SecretDoor`).
+- **Live map markers** - challenge hourglass, trap spikes, secret `?` and
+  cache diamond markers derive from live room state and are consumed on
+  looting; the expanded legend draws the same shapes as the map; the
+  minimap fingerprint includes seal count, hints and door state so cached
+  geometry invalidates on topology changes.
+- **Crypt Sentinel** - a shielded guard counter: 65% frontal damage
+  reduction, a committed shield bash, and a 1.5 s exposed flank window at
+  +50% damage taken (`GUARD` config).
+- **Rift Chanter** - an interruptible summoner counter: a 2.4 s cast that
+  any hit staggers and retreats from, a room-local summon cap counting
+  every resident, and a 3-bolt volley at cap (`CHANTER` config).
+- **Chamber reward choice** - combat clears offer recovery, currency or a
+  build upgrade with concrete payoff previews and an explicit
+  exhausted-pool fallback (`ChamberChoicePanel`); champion sanctums keep a
+  patron altar.
+- **Shop rerolls** - the merchant keeps stable per-floor offers with a
+  limited, visibly priced reroll (2 stock, 12 + 8 gold per step) and
+  stat-delta previews on every ware (`SHOP` config).
+- **Save versioning** - checkpoints carry `version: 2`; version-less v1
+  records load with defaults, newer versions are refused, and a record
+  must survive its own round-trip before replacing the last good save.
+- **Bounded path recovery** - enemies route around same-axis pillars with
+  time-limited detours instead of grinding into them.
+
+### Changed
+
+- Gold modifiers now apply exactly once to the rolled bounty before
+  splitting piles (`splitBounty`), replacing the per-pile multiplier;
+  Barren Halls and bonus-gold relics no longer compound per coin.
+- Enemies wake in a staggered activation cascade (~340 ms apart) and rooms
+  cap at `ROOM_ENEMY_CAP = 8` residents including summons.
+- Champion and boss delayed volleys/ground hazards die with the action
+  that queued them: interrupts, phase changes and death bump an action
+  sequence id every callback checks.
+- Boss bursts spread on rings with guaranteed safe ground, rings fire
+  >= 650 ms apart, volleys gain a pre-cast tell, and phase transitions
+  re-emit the boss bar immediately.
+- Champion sanctums (encounter rooms) now leave a boon shrine as the
+  post-fight reward instead of the removed post-clear random roll.
+- Every choice overlay (menu, pause, level-up, boon, chamber, shop) is
+  keyboard-traversable: arrows walk the options, number keys select, Enter
+  confirms, Esc closes.
+- The audit pipeline moved `fireSplash` into `DerivedStats`
+  (`fireSplashMult`); the upgrade previously bypassed the derived stats.
+
+### Fixed
+
+- Slot-index wrap-around could connect a secret branch to a non-adjacent
+  host room with a map-spanning corridor; neighbor candidates are now
+  bounds-checked and the doors-closed isolation is validated.
+- The Cinder Blast upgrade bypassed the derived-stats pipeline (raw stack
+  reads in the player); caught by the new deterministic audit test.
+- Trap-chamber wardens never activated (the activation cascade previously
+  ran only for gate-locking rooms).
+
 ## [1.1.0] - Combat Baseline & GitHub Pages
 
 ### Added

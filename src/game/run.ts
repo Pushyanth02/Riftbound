@@ -4,6 +4,11 @@ import { MAX_FLOOR, WEAPONS, PLAYER_BASE, RELICS, UPGRADES, xpForLevel, BOONS, P
 import { z } from 'zod';
 import type { WeaponId, PactId, UpgradeId } from './types';
 
+/** Current checkpoint format version. Version 1 records (the pre-chamber
+    format: weapon/boonIds/pacts/souls all optional) are still accepted;
+    unknown future versions are rejected instead of half-loaded. */
+export const SAVE_VERSION = 2;
+
 export interface DerivedStats {
   maxHp: number;
   maxMana: number;
@@ -15,6 +20,7 @@ export interface DerivedStats {
   fireballDamage: number;
   fireballCooldown: number;
   fireballMana: number;
+  fireSplashMult: number;
   frostDamage: number;
   frostMana: number;
   frostCooldown: number;
@@ -54,6 +60,7 @@ export interface DerivedStats {
 }
 
 export interface SaveData {
+  version?: number;
   weapon?: WeaponId;
   seed: number;
   floor: number;
@@ -74,6 +81,9 @@ export interface SaveData {
 
 const count = z.number().int().nonnegative();
 const saveSchema = z.object({
+  /* absent => version 1 (all newer optional fields defaulted below);
+     newer than the current version => refuse rather than misload */
+  version: z.number().int().min(1).max(SAVE_VERSION).optional(),
   weapon: z.enum(['sword', 'knife', 'cleaver']).default('sword'),
   seed: z.number().int(), floor: count.min(1).max(MAX_FLOOR), level: count.min(1),
   xp: count, gold: count, kills: count, timeMs: z.number().nonnegative(),
@@ -198,6 +208,7 @@ export class RunState {
 
   toSave(): SaveData {
     return {
+      version: SAVE_VERSION,
       weapon: this.weapon,
       seed: this.seed,
       floor: this.floor,
@@ -259,6 +270,8 @@ function computeStats(run: RunState): DerivedStats {
     fireballDamage: PLAYER_BASE.fireballDamage * (1 + 0.2 * s('spellDmg')),
     fireballCooldown: PLAYER_BASE.fireballCooldown / (1 + 0.12 * s('atkSpeed') * 0.5),
     fireballMana: PLAYER_BASE.fireballMana,
+    /* Cinder Blast lives in the derived pipeline (audit: observable effect) */
+    fireSplashMult: 1 + 0.4 * s('fireSplash'),
     frostDamage: PLAYER_BASE.frostDamage * (1 + 0.2 * s('spellDmg')),
     frostMana: PLAYER_BASE.frostMana,
     frostCooldown: PLAYER_BASE.frostCooldown,
@@ -305,6 +318,20 @@ function computeStats(run: RunState): DerivedStats {
 /** Upgrade defs left that can still be offered. */
 export function availableUpgrades(run: RunState): typeof UPGRADES {
   return UPGRADES.filter((u) => run.stacks(u.id) < u.maxStacks);
+}
+
+/** Apply the gold modifiers exactly once to a rolled bounty, then split it
+    into piles. Pile values sum to the modified total (remainder is spread
+    front-loaded); a modified total below one still pays a single coin.
+    Pure math so the economy tests exercise it directly. */
+export function splitBounty(base: number, piles: number, goldMult: number): number[] {
+  const total = Math.max(1, Math.round(base * goldMult));
+  const n = Math.max(1, Math.min(piles, total));
+  const values: number[] = [];
+  for (let i = 0; i < n; i++) {
+    values.push(Math.floor(total / n) + Number(i < total % n));
+  }
+  return values;
 }
 
 /** Boon offering pool: unowned boons, weighted toward one patron per shrine. */

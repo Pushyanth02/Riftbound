@@ -30,6 +30,24 @@ export default function BoonModal() {
         e.preventDefault();
         uiClick();
         cmdBoon(idx);
+        return;
+      }
+      /* arrow keys walk the offerings, Enter takes the focused one */
+      const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+      if (dir !== 0) {
+        e.preventDefault();
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'));
+        const active = buttons.findIndex((b) => b === document.activeElement);
+        if (buttons.length > 0) buttons[(active + dir + buttons.length) % buttons.length].focus();
+        return;
+      }
+      if (e.key === 'Enter') {
+        const active = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).findIndex((b) => b === document.activeElement);
+        if (active >= 0 && active < boon.choices.length) {
+          e.preventDefault();
+          uiClick();
+          cmdBoon(active);
+        }
       }
     };
     window.addEventListener('keydown', handler);

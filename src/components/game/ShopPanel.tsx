@@ -1,5 +1,10 @@
 'use client';
 
+/* The merchant: stable offers per floor, a limited reroll with a visible
+   price, and concrete payoff previews before purchase. Keyboard flow:
+   Up/Down move between wares, Enter buys, R rerolls, Esc leaves. */
+
+import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
 import { assetPath } from '@/lib/assetPath';
 import { uiClick } from './shared';
@@ -9,7 +14,48 @@ import { cn } from '@/lib/utils';
 export default function ShopPanel() {
   const shop = useGameStore((s) => s.shop);
   const cmdShopBuy = useGameStore((s) => s.cmdShopBuy);
+  const cmdShopReroll = useGameStore((s) => s.cmdShopReroll);
   const cmdShopClose = useGameStore((s) => s.cmdShopClose);
+  const [focused, setFocused] = useState(0);
+  const leaveRef = useRef<HTMLButtonElement>(null);
+
+  const wares = shop?.wares ?? [];
+  const rerollPrice = shop?.rerollPrice ?? null;
+  const canReroll = rerollPrice !== null && shop !== null && shop.gold >= rerollPrice;
+
+  useEffect(() => {
+    if (wares.length === 0) return;
+    /* keyboard navigation: arrows move the selection across buyable wares,
+       Enter buys, R rerolls. Number shortcuts stay on the game layer only. */
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        setFocused((f) => (wares.length === 0 ? 0 : (f + 1) % wares.length));
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setFocused((f) => (wares.length === 0 ? 0 : (f - 1 + wares.length) % wares.length));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const ware = wares[focused];
+        if (ware && !ware.sold && shop && shop.gold >= ware.price) {
+          uiClick();
+          cmdShopBuy(focused);
+        }
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        if (canReroll) {
+          uiClick();
+          cmdShopReroll();
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [wares, focused, shop, canReroll, cmdShopBuy, cmdShopReroll]);
+
+  useEffect(() => {
+    leaveRef.current?.focus();
+  }, []);
 
   if (!shop) return null;
 
@@ -31,16 +77,20 @@ export default function ShopPanel() {
           <span className="rb-smallcaps text-[9px] text-[#8d8398]">your gold</span>
         </div>
 
-        <ul className="rb-scroll mt-5 flex max-h-[42vh] flex-col gap-2.5 overflow-y-auto pr-1">
+        <ul className="rb-scroll mt-5 flex max-h-[42vh] flex-col gap-2.5 overflow-y-auto pr-1" role="listbox" aria-label="Merchant wares">
           {shop.wares.map((ware, i) => {
             const affordable = shop.gold >= ware.price;
             return (
               <li
                 key={ware.id}
                 className={cn(
-                  'relative flex items-center gap-4 border p-3.5',
-                  ware.sold ? 'border-[rgba(217,173,98,0.14)] bg-[rgba(20,16,30,0.6)]' : 'border-[rgba(217,173,98,0.3)] bg-[rgba(26,21,39,0.9)]',
+                  'relative flex items-center gap-4 border p-3.5 transition-colors',
+                  ware.sold
+                    ? 'border-[rgba(217,173,98,0.14)] bg-[rgba(20,16,30,0.6)]'
+                    : 'border-[rgba(217,173,98,0.3)] bg-[rgba(26,21,39,0.9)]',
+                  i === focused && !ware.sold && 'border-[var(--gold)] bg-[rgba(30,25,45,0.95)]',
                 )}
+                onMouseEnter={() => setFocused(i)}
               >
                 <img
                   src={assetPath(ware.icon)}
@@ -53,6 +103,10 @@ export default function ShopPanel() {
                     {ware.name}
                   </p>
                   <p className="font-body text-xs leading-snug text-[#a89dbd]">{ware.desc}</p>
+                  {/* concrete stat delta / conditional effect preview */}
+                  {ware.preview && !ware.sold && (
+                    <p className="mt-1 font-body text-[11px] font-semibold tabular-nums text-[var(--gold)]">{ware.preview}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
                   <span className="flex items-center gap-1.5">
@@ -77,9 +131,30 @@ export default function ShopPanel() {
           })}
         </ul>
 
-        <button type="button" className="rb-btn rb-btn-primary mt-6" autoFocus onClick={() => { uiClick(); cmdShopClose(); }}>
-          Leave
-        </button>
+        <div className="mt-4 flex flex-col items-center gap-3">
+          {/* limited reroll: visible price, stable offers until used */}
+          <button
+            type="button"
+            disabled={!canReroll}
+            onClick={() => { uiClick(); cmdShopReroll(); }}
+            className={cn(
+              'rb-btn text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--gold)]',
+              !canReroll && 'cursor-not-allowed opacity-40',
+            )}
+            aria-label={rerollPrice === null ? 'Reroll stock exhausted' : `Reroll the merchant's stock for ${rerollPrice} gold`}
+          >
+            {rerollPrice === null ? (
+              'Stock settles - no more rerolls'
+            ) : (
+              <>
+                Reroll stock - {rerollPrice} gold <span className="ml-1 text-[#8d8398]">(R)</span>
+              </>
+            )}
+          </button>
+          <button type="button" ref={leaveRef} className="rb-btn rb-btn-primary" onClick={() => { uiClick(); cmdShopClose(); }}>
+            Leave <span className="ml-1 text-[#8d8398]">(Esc)</span>
+          </button>
+        </div>
       </div>
     </DialogShell>
   );

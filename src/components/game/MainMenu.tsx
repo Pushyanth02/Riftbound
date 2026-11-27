@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
 import { assetPath } from '@/lib/assetPath';
 import { gameAudio } from '@/game/audio';
@@ -18,6 +18,24 @@ export default function MainMenu() {
   const cmdContinue = useGameStore((s) => s.cmdContinue);
 
   const [artOk, setArtOk] = useState(true);
+  /* keyboard-only traversal: arrow keys walk the nav, Enter activates the
+     focused button (native behavior once focus lands) */
+  const navRef = useRef<HTMLDivElement>(null);
+  const navButtons = useRef<HTMLButtonElement[]>([]);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const buttons = navButtons.current.filter((b) => b && !b.disabled);
+      if (buttons.length === 0) return;
+      const idx = buttons.findIndex((b) => b === document.activeElement);
+      const dir = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1;
+      const next = buttons[(idx + dir + buttons.length) % (idx === -1 ? buttons.length + dir : buttons.length)] ?? buttons[0];
+      e.preventDefault();
+      next.focus();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
   /* localStorage-backed records differ from the server render, so the
      record line is painted one tick after hydration */
   const [recordsReady, setRecordsReady] = useState(false);
@@ -92,19 +110,22 @@ export default function MainMenu() {
             </button>
           </div>
         ) : (
-          <nav className="mt-10 flex w-[260px] flex-col gap-2.5" aria-label="Main menu">
+          <nav ref={navRef} className="mt-10 flex w-[260px] flex-col gap-2.5" aria-label="Main menu">
             <button
+              ref={(b) => { if (b) navButtons.current[0] = b; }}
               type="button"
-              className="rb-btn rb-btn-primary disabled:cursor-wait disabled:opacity-70"
+              className="rb-btn rb-btn-primary disabled:cursor-wait disabled:opacity-70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gold)]"
               disabled={!canPlay}
+              autoFocus={canPlay}
               onClick={goPacts}
             >
               {canPlay ? 'New Run' : `Forging the Ruins… ${pct}%`}
             </button>
             {saveInfo && (
               <button
+                ref={(b) => { if (b) navButtons.current[1] = b; }}
                 type="button"
-                className="rb-btn disabled:cursor-wait disabled:opacity-70"
+                className="rb-btn disabled:cursor-wait disabled:opacity-70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gold)]"
                 disabled={!canPlay}
                 onClick={() => beginRun(cmdContinue)}
               >
@@ -115,8 +136,9 @@ export default function MainMenu() {
               </button>
             )}
             <button
+              ref={(b) => { if (b) navButtons.current[2] = b; }}
               type="button"
-              className="rb-btn"
+              className="rb-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gold)]"
               onClick={() => {
                 uiClick();
                 openPanel('settings');
@@ -125,8 +147,9 @@ export default function MainMenu() {
               Settings
             </button>
             <button
+              ref={(b) => { if (b) navButtons.current[3] = b; }}
               type="button"
-              className="rb-btn"
+              className="rb-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gold)]"
               onClick={() => {
                 uiClick();
                 openPanel('controls');
@@ -135,8 +158,9 @@ export default function MainMenu() {
               Controls
             </button>
             <button
+              ref={(b) => { if (b) navButtons.current[4] = b; }}
               type="button"
-              className="rb-btn"
+              className="rb-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gold)]"
               onClick={() => {
                 uiClick();
                 openPanel('credits');

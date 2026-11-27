@@ -125,7 +125,7 @@ export class Player extends Entity {
         kind: 'fireball',
         owner: 'player',
         radius: 12,
-        splashRadius: 56 * (1 + 0.4 * this.ctx.run.stacks('fireSplash')),
+        splashRadius: 56 * stats.fireSplashMult,
         splashDamage: stats.fireballDamage * 0.55 * (1 + 0.3 * this.ctx.run.stacks('fireSplash')),
         burn,
       });

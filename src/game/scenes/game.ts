@@ -1,12 +1,13 @@
 /* GameScene: run lifecycle, floor construction, entity orchestration,
    input, HUD/minimap emission, room locks, boss + champion encounters,
-   boon shrines, pacts, souls, persistence. */
+   boon shrines, pacts, souls, optional routes (timed challenge, trap
+   chamber, secret branch), chamber rewards, shop rerolls, persistence. */
 import * as Phaser from 'phaser';
 import { bus } from '../bus';
-import { BOSS, CHAMPIONS, FLOORS, MAX_FLOOR, PATRONS, PLAYER_BASE, RELICS, TILE, UPGRADES, type EnemyKind, type RelicDef } from '../config';
-import type { BoonChoice, BoonInfo, Command, HudState, MinimapCorridor, MinimapData, MinimapRoom, PactId, PatronId, RelicInfo, RunStats, ShopWare, UiState, UpgradeChoice, WeaponId } from '../types';
+import { BOSS, CHAMPIONS, FLOORS, MAX_FLOOR, OPTIONAL_ROOMS, PATRONS, PLAYER_BASE, RELICS, ROOM_ENEMY_CAP, SHOP, TILE, UPGRADES, type EnemyKind, type RelicDef } from '../config';
+import type { BoonChoice, BoonInfo, ChamberChoice, Command, HudState, MinimapCorridor, MinimapData, MinimapRoom, PactId, PatronId, RelicInfo, RunStats, ShopWare, UiState, UpgradeChoice, WeaponId } from '../types';
 import { FxSystem } from '../fx';
-import { RunState, parseSave, availableUpgrades, boonOffering, type SaveData } from '../run';
+import { RunState, availableUpgrades, boonOffering, parseSave, splitBounty, type SaveData } from '../run';
 import { Rng, randomSeed } from '../rng';
 import { gameAudio } from '../audio';
 import { generateDungeon, type Dungeon } from '../dungeon/generator';
@@ -14,12 +15,26 @@ import { buildDungeon, type BuiltDungeon } from '../dungeon/builder';
 import { gridLineOfSight } from '../sight';
 import { Player } from '../entities/player';
 import { Boss, Champion, Enemy, type TelegraphDebug } from '../entities/enemy';
-import { Barrier, BoonShrine, Chest, Merchant, Pickup, Portal, Projectile, Shrine, type Interactable, type PickupKind } from '../entities/objects';
+import { Barrier, BoonShrine, Chest, CrackedWall, Merchant, Pickup, Portal, Projectile, Shrine, TrapPlate, type Interactable, type PickupKind } from '../entities/objects';
 import type { GameContext, ProjectileSpawn } from '../ctx';
 
 const SAVE_KEY = 'riftbound.save';
 
 type SceneState = 'idle' | 'running' | 'paused' | 'transition' | 'over';
+
+/** Concrete payoff preview for a relic offering (shop + chamber rewards). */
+function relicPreview(def: RelicDef): string {
+  const e = def.effect;
+  if (e.goldMult) return `+${Math.round((e.goldMult - 1) * 100)}% gold from all sources`;
+  if (e.bossDmgMult) return `+${Math.round((e.bossDmgMult - 1) * 100)}% damage to bosses and champions`;
+  if (e.hpMult) return `+${Math.round((e.hpMult - 1) * 100)}% maximum health`;
+  if (e.critAdd) return `+${Math.round(e.critAdd * 100)}% critical chance`;
+  if (e.dodgeCharge) return `dodge recovers ${Math.round(e.dodgeCharge * 100)}% sooner`;
+  if (e.xpMult) return `+${Math.round((e.xpMult - 1) * 100)}% experience`;
+  if (e.manaRegenAdd) return `+${e.manaRegenAdd} mana per second`;
+  if (e.armorAdd) return `damage taken -${e.armorAdd}`;
+  return def.desc;
+}
 
 export class GameScene extends Phaser.Scene implements GameContext {
   /* GameContext */
@@ -67,6 +82,20 @@ export class GameScene extends Phaser.Scene implements GameContext {
   private boonOpen = false;
   private pendingBoonChoices: BoonChoice[] | null = null;
   private pendingBoonShrine: BoonShrine | null = null;
+  /* chamber-reward choice (phase 4): offered after combat rooms clear */
+  private chamberOpen = false;
+  private pendingChamber: ChamberChoice[] | null = null;
+  private pendingChamberRoom = -1;
+  /* timed challenge state: -1 when idle, otherwise the room under trial */
+  private challengeRoomId = -1;
+  private challengeEndsAt = 0;
+  private challengeResolved = false;
+  /* trap plates + secret doors of the current floor */
+  private trapPlates: TrapPlate[] = [];
+  /* shop reroll stock: stable offers until purchased or rerolled */
+  private shopRerolls = 0;
+  private shopFloor = -1;
+  private shopRolled = false;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -112,6 +141,14 @@ export class GameScene extends Phaser.Scene implements GameContext {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off('resize', this.handleResize, this);
     });
+
+    /* scripted-QA handle (dev only): lets headless browser runs drive the
+       scene the same way the checkpoint builds did - controlled positioning,
+       damage and state inspection. Stripped from production reasoning by
+       NODE_ENV. */
+    if (process.env.NODE_ENV === 'development') {
+      (window as unknown as Record<string, unknown>).__riftbound = this;
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -163,6 +200,9 @@ export class GameScene extends Phaser.Scene implements GameContext {
       case 'boon':
         this.chooseBoon(cmd.index);
         break;
+      case 'chamber':
+        this.chooseChamber(cmd.index);
+        break;
       case 'pacts:back':
         this.emitUiState('menu');
         break;
@@ -184,6 +224,9 @@ export class GameScene extends Phaser.Scene implements GameContext {
         break;
       case 'shop:buy':
         this.buyWare(cmd.index);
+        break;
+      case 'shop:reroll':
+        this.rerollWares();
         break;
       case 'shop:close':
         bus.emit('shop', null);
@@ -284,7 +327,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
     });
   }
 
-  private pauseGame(uiState: 'paused' | 'levelup' | 'inventory' | 'shop' | 'boon' = 'paused'): void {
+  private pauseGame(uiState: 'paused' | 'levelup' | 'inventory' | 'shop' | 'boon' | 'chamber' = 'paused'): void {
     if (this.state === 'running') {
       this.player.cancelCharge();
       this.state = 'paused';
@@ -351,6 +394,18 @@ export class GameScene extends Phaser.Scene implements GameContext {
     this.player.hp = Math.min(this.run.hp, this.run.stats.maxHp);
     this.player.mana = Math.min(this.run.mana, this.run.stats.maxMana);
 
+    /* optional-route state resets with the floor */
+    this.challengeRoomId = -1;
+    this.challengeEndsAt = 0;
+    this.challengeResolved = false;
+    this.trapPlates = [];
+    this.shopRerolls = 0;
+    this.shopFloor = floor;
+    this.shopRolled = false;
+    this.chamberOpen = false;
+    this.pendingChamber = null;
+    this.pendingChamberRoom = -1;
+
     /* enemies + props + interactables */
     for (const room of this.dungeon.rooms) {
       for (const sp of room.enemySpawns) {
@@ -373,6 +428,18 @@ export class GameScene extends Phaser.Scene implements GameContext {
       }
       for (const prop of room.props) {
         this.placeProp(prop.kind, (prop.x + 0.5) * TILE, (prop.y + 0.5) * TILE, room.id);
+      }
+      /* trap chamber plates (armed while the player is inside) */
+      for (const plate of room.trapPlates) {
+        const tp = new TrapPlate(this, (plate.x + 0.5) * TILE, (plate.y + 0.5) * TILE, room.id);
+        this.trapPlates.push(tp);
+        this.interactables.push(tp);
+      }
+      /* secret doors: sealed mouths with an interaction cue */
+      for (const door of this.dungeon.secretDoors) {
+        if (door.fromRoom === room.id && !door.opened) {
+          this.interactables.push(new CrackedWall(this, door.id, door.tiles));
+        }
       }
       /* barriers per gate, indexed per room */
       const indices: number[] = [];
@@ -409,9 +476,17 @@ export class GameScene extends Phaser.Scene implements GameContext {
     this.tweens.resumeAll();
     this.levelupOpen = false;
     this.boonOpen = false;
+    this.chamberOpen = false;
     this.pendingChoices = null;
     this.pendingBoonChoices = null;
     this.pendingBoonShrine = null;
+    this.pendingChamber = null;
+    this.pendingChamberRoom = -1;
+    this.challengeRoomId = -1;
+    this.challengeEndsAt = 0;
+    this.challengeResolved = false;
+    this.trapPlates = [];
+    this.shopRolled = false;
     this.sealedTiles.clear();
     this.debugHitboxes?.clear();
     this.hudRelics = [];
@@ -470,11 +545,37 @@ export class GameScene extends Phaser.Scene implements GameContext {
   private placeProp(kind: string, x: number, y: number, roomId: number): void {
     switch (kind) {
       case 'chest':
-        this.interactables.push(new Chest(this, x, y));
+        this.interactables.push(new Chest(this, x, y, roomId));
         break;
       case 'shrine':
         this.interactables.push(new Shrine(this, x, y));
         if (this.dungeon.rooms[roomId].type !== 'encounter') this.refreshMinimapIcon(roomId, 'shrine');
+        break;
+      case 'boonshrine':
+        /* patron altar inside the secret branch (and champion sanctums) */
+        this.interactables.push(new BoonShrine(this, x, y));
+        this.refreshMinimapIcon(roomId, this.dungeon.rooms[roomId].type === 'secret' ? 'boon' : 'boon');
+        break;
+      case 'totem':
+        /* trial totem: the timed challenge's staging anchor */
+        {
+          const totem = this.add.sprite(x, y, 'prop_altar', 0);
+          totem.setOrigin(0.5, 0.86);
+          totem.setDepth(y);
+          totem.setScale(0.6);
+          this.ambientSprites.push(totem);
+          const flame = this.add.sprite(x, y - 26, 'fx_candle_flame', 0);
+          flame.play('fx_candle_flame');
+          flame.setDepth(y + 2);
+          flame.setScale(1.1);
+          this.ambientSprites.push(flame);
+          if (!this.reducedFx) {
+            this.fx.spawn('magic_motes', x, y - 34, { scale: 0.55, duration: 100000, depth: y + 3 });
+          }
+        }
+        break;
+      case 'soulpile':
+        this.spawnPickup('soul', x, y, 1);
         break;
       case 'merchant':
         this.interactables.push(new Merchant(this, x, y));
@@ -617,11 +718,12 @@ export class GameScene extends Phaser.Scene implements GameContext {
     this.pickups.push(new Pickup(this, kind, x, y, value));
   }
 
-  private dropGold(x: number, y: number, total: number, piles: number): void {
-    piles = Math.min(total, piles);
-    for (let i = 0; i < piles; i++) {
-      this.spawnPickup('coin', x, y, Math.floor(total / piles) + Number(i < total % piles));
-    }
+  private dropGold(x: number, y: number, base: number, piles: number): void {
+    /* phase 4: gold modifiers apply exactly once to the rolled bounty,
+       then the modified total is split into piles (Barren Halls and
+       bonus-gold relics no longer compound per pile) */
+    const values = splitBounty(base, piles, this.run.stats.goldMult);
+    for (const value of values) this.spawnPickup('coin', x, y, value);
   }
 
   addXp(amount: number): void {
@@ -679,22 +781,68 @@ export class GameScene extends Phaser.Scene implements GameContext {
     }
   }
 
-  refreshMinimapIcon(roomId: number, icon: 'merchant' | 'champion' | 'boon' | 'shrine' | null): void {
+  refreshMinimapIcon(roomId: number, icon: 'merchant' | 'champion' | 'boon' | 'shrine' | 'challenge' | 'trap' | 'secret' | 'chest' | null): void {
     const room = this.dungeon?.rooms[roomId];
     if (!room) return;
     room.icon = icon;
     this.emitMinimap();
   }
 
+  /** Immediate boss-bar re-emit: phase transitions land on the frame they
+      happen instead of waiting for the 180 ms tick. */
+  refreshBossBar(): void {
+    this.emitBossState();
+  }
+
+  /** Consumed-map-marker hook: chests clear their room's marker. */
+  onRoomLooted(roomId: number): void {
+    const room = this.dungeon?.rooms[roomId];
+    if (!room) return;
+    if (room.icon === 'trap' || room.icon === 'chest' || room.icon === 'secret') {
+      this.refreshMinimapIcon(roomId, null);
+    }
+  }
+
+  /** Secret door opening: flips walkable topology, reveals the hidden
+      corridor + branch on the map (geometry cache invalidation happens via
+      the minimap fingerprint) and swaps the '?' clue for the room itself. */
+  openSecretDoor(doorId: number): void {
+    const door = this.dungeon?.secretDoors[doorId];
+    if (!door || door.opened) return;
+    door.opened = true;
+    for (const t of door.tiles) this.dungeon.walkable[t.y * this.dungeon.width + t.x] = 1;
+    for (const c of this.dungeon.corridors) {
+      if (c.roomA === door.fromRoom && c.roomB === door.secretRoom) c.hidden = false;
+    }
+    const secret = this.dungeon.rooms[door.secretRoom];
+    secret.discovered = true;
+    secret.hinted = false;
+    this.toast('A hidden reliquary breathes open', '/assets/icons/portal.png');
+    this.emitMinimap();
+  }
+
   summonEcho(x: number, y: number): void {
     if (!this.walkableAtPx(x, y) || this.roomOfPoint(x, y) !== this.currentRoomId) return;
     const alive = this.enemies.filter((e) => e.alive && e.roomId === this.currentRoomId && !e.isBoss && !e.isChampion).length;
-    if (alive >= 7) return;
+    if (alive >= ROOM_ENEMY_CAP) return;
     const echo = new Enemy(this, BOSS.summonKind, x, y);
     echo.roomId = this.roomOfPoint(x, y);
     this.enemies.push(echo);
     this.fx.spawn('teleport_in', x, y - 8, { scale: 0.9 });
     echo.activate();
+  }
+
+  /** Generic minion summon (chanter casts) honoring the room-local cap. */
+  summonEnemy(kind: EnemyKind, x: number, y: number): void {
+    if (!this.walkableAtPx(x, y)) return;
+    const roomId = this.roomOfPoint(x, y);
+    const alive = this.enemies.filter((e) => e.alive && e.roomId === roomId && !e.isBoss && !e.isChampion).length;
+    if (alive >= ROOM_ENEMY_CAP) return;
+    const minion = new Enemy(this, kind, x, y);
+    minion.roomId = roomId;
+    this.enemies.push(minion);
+    this.fx.spawn('teleport_in', x, y - 8, { scale: 0.8 });
+    minion.activate();
   }
 
   private roomOfPoint(x: number, y: number): number {
@@ -779,18 +927,55 @@ export class GameScene extends Phaser.Scene implements GameContext {
   }
 
   onMerchantOpened(): void {
-    const rng = new Rng(this.run.seed ^ (this.run.floor * 911));
+    /* offers are stable for the floor: regenerated only by an explicit
+       reroll, so closing and reopening the shop changes nothing */
+    if (!this.shopRolled || this.shopFloor !== this.run.floor) {
+      this.buildWares(0);
+      this.shopRolled = true;
+      this.shopFloor = this.run.floor;
+      this.shopRerolls = 0;
+    }
+    this.emitShop();
+    this.pauseGame('shop');
+  }
+
+  /** Build (or rebuild after a reroll) the merchant's wares. The reroll
+      offset changes the seeded relic pick; potion prices stay fixed. */
+  private buildWares(reroll: number): void {
+    const rng = new Rng((this.run.seed ^ (this.run.floor * 911)) + reroll * 7919);
     const relicPool = RELICS.filter((r) => !this.run.relics.some((own) => own.id === r.id));
     const relic = relicPool.length > 0 ? relicPool[rng.int(0, relicPool.length - 1)] : null;
     this.shopWares = [
-      { id: 'ware-h', name: 'Health Potion', desc: 'Mends 40% of your health.', icon: '/assets/icons/health_potion.png', price: 25, kind: 'potion-h', sold: false },
-      { id: 'ware-m', name: 'Mana Potion', desc: 'Restores half your mana.', icon: '/assets/icons/mana_potion.png', price: 20, kind: 'potion-m', sold: false },
+      { id: 'ware-h', name: 'Health Potion', desc: 'Mends 40% of your health.', icon: '/assets/icons/health_potion.png', price: 25, kind: 'potion-h', sold: false, preview: `+${Math.round(this.run.stats.healPotionPct * 100)}% health now` },
+      { id: 'ware-m', name: 'Mana Potion', desc: 'Restores half your mana.', icon: '/assets/icons/mana_potion.png', price: 20, kind: 'potion-m', sold: false, preview: `+${Math.round(this.run.stats.manaPotionPct * 100)}% mana now` },
     ];
     if (relic) {
-      this.shopWares.push({ id: `ware-${relic.id}`, name: relic.name, desc: relic.desc, icon: relic.icon, price: 60, kind: 'relic', sold: false });
+      this.shopWares.push({ id: `ware-${relic.id}`, name: relic.name, desc: relic.desc, icon: relic.icon, price: 60, kind: 'relic', sold: false, preview: relicPreview(relic) });
     }
-    bus.emit('shop', { wares: this.shopWares, gold: this.run.gold });
-    this.pauseGame('shop');
+  }
+
+  private emitShop(): void {
+    const rerollsLeft = SHOP.maxRerolls - this.shopRerolls;
+    const price = SHOP.rerollBase + this.shopRerolls * SHOP.rerollStep;
+    bus.emit('shop', {
+      wares: this.shopWares.slice(),
+      gold: this.run.gold,
+      rerollPrice: rerollsLeft > 0 ? price : null,
+    });
+  }
+
+  /** Limited reroll: visible price, offers stay stable until purchased
+      or rerolled again; double activation is guarded by the stock check. */
+  private rerollWares(): void {
+    if (this.shopRerolls >= SHOP.maxRerolls) return;
+    const price = SHOP.rerollBase + this.shopRerolls * SHOP.rerollStep;
+    if (this.run.gold < price) return;
+    this.run.gold -= price;
+    this.shopRerolls++;
+    this.buildWares(this.shopRerolls);
+    this.play('coin');
+    this.emitShop();
+    this.emitHud();
   }
 
   private buyWare(index: number): void {
@@ -805,7 +990,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
       if (def) this.grantRelic(def);
     }
     this.play('coin');
-    bus.emit('shop', { wares: this.shopWares.slice(), gold: this.run.gold });
+    this.emitShop();
     this.emitHud();
   }
 
@@ -824,26 +1009,92 @@ export class GameScene extends Phaser.Scene implements GameContext {
     room.discovered = true;
     for (const gate of room.gates) {
       const other = this.dungeon.rooms[gate.otherRoom];
-      if (other && other.type !== 'boss') other.discovered = true;
+      /* secret branches stay hidden behind their cracked wall; the hint
+         marker (dashed outline) is already visible from here */
+      if (other && other.type !== 'boss' && other.type !== 'secret') other.discovered = true;
     }
     if (!silent) {
       const champ = this.enemies.find((e) => e.isChampion && (e as Champion).roomId === roomId) as Champion | undefined;
-      const sub = room.type === 'boss' ? BOSS.title : champ ? champ.cdef.title : undefined;
+      const sub = room.type === 'boss' ? BOSS.title : champ ? champ.cdef.title :
+        room.type === 'challenge' ? 'Trial of the Hourglass' :
+        room.type === 'trap' ? 'Tread carefully' :
+        room.type === 'secret' ? 'What the walls kept' : undefined;
       bus.emit('room', { name: room.name, sub });
     }
 
     const hasLivingEnemies = this.enemies.some((e) => e.roomId === roomId && e.alive);
-    if (hasLivingEnemies && (room.type === 'combat' || room.type === 'encounter' || room.type === 'boss')) {
-      this.lockRoom(roomId);
-      for (const e of this.enemies) {
-        if (e.roomId === roomId && e.alive && !e.isBoss && !e.isChampion) e.activate();
-      }
+    const lockable = room.type === 'combat' || room.type === 'encounter' || room.type === 'boss' || room.type === 'challenge';
+    if (hasLivingEnemies) {
+      if (lockable) this.lockRoom(roomId);
+      /* activation cascade: a wave wakes over ~1.7 s so a packed room still
+         leaves ground to dodge on the opening beat. Trap chambers run the
+         same cascade without sealing the gates - they stay leavable. */
+      const wave = this.enemies.filter((e) => e.roomId === roomId && e.alive && !e.isBoss && !e.isChampion);
+      wave.forEach((e, i) => {
+        this.time.delayedCall(120 + i * 340, () => {
+          if (e.alive && !e.activated) e.activate();
+        });
+      });
       if (room.type === 'boss') this.startBossIntro();
       else if (room.type === 'encounter') this.startChampionIntro(roomId);
-    } else if (!hasLivingEnemies) {
+      else if (room.type === 'challenge') this.startChallenge(roomId);
+    } else {
       room.cleared = true;
     }
+    /* trap plates only cycle while the player stands in the chamber */
+    for (const plate of this.trapPlates) plate.setArmed(plate.room === roomId);
     this.emitMinimap();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* timed challenge (optional route)                                   */
+  /* ------------------------------------------------------------------ */
+
+  private startChallenge(roomId: number): void {
+    this.challengeRoomId = roomId;
+    this.challengeEndsAt = this.now + OPTIONAL_ROOMS.challenge.timeMs;
+    this.challengeResolved = false;
+    this.toast('The trial begins - clear the chamber before the sand runs out', '/assets/icons/skull.png');
+    this.play('phase');
+    this.emitHud();
+  }
+
+  /** Timer expiry: the trial fails open - gates release so the route
+      continues, the reward is forfeit, the map marker is consumed. */
+  private failChallenge(): void {
+    const roomId = this.challengeRoomId;
+    this.challengeRoomId = -1;
+    this.challengeResolved = true;
+    const room = this.dungeon.rooms[roomId];
+    if (room) {
+      room.cleared = true;
+      this.unlockRoom(roomId);
+      if (room.icon === 'challenge') this.refreshMinimapIcon(roomId, null);
+    }
+    this.toast('The sand ran out - the trial pays nothing', '/assets/icons/skull.png');
+    this.emitHud();
+  }
+
+  /** Challenge cleared inside the window: guaranteed relic + gold + souls. */
+  private completeChallenge(roomId: number): void {
+    this.challengeRoomId = -1;
+    const rng = new Rng(this.run.seed ^ (this.run.floor * 104729) ^ (roomId * 31));
+    const [lo, hi] = OPTIONAL_ROOMS.challenge.rewardGold;
+    const gold = rng.int(lo, hi);
+    const room = this.dungeon.rooms[roomId];
+    this.dropGold((room.cx + 0.5) * TILE, (room.cy + 0.5) * TILE, gold, 6);
+    for (let i = 0; i < OPTIONAL_ROOMS.challenge.rewardSouls; i++) {
+      this.spawnPickup('soul', room.cx * TILE + rng.int(-50, 50), room.cy * TILE + rng.int(-40, 40), 1);
+    }
+    const pool = RELICS.filter((r) => !this.run.relics.some((own) => own.id === r.id));
+    if (pool.length > 0) {
+      const pick = pool[rng.int(0, pool.length - 1)];
+      this.time.delayedCall(700, () => this.grantRelic(pick));
+    }
+    if (room.icon === 'challenge') this.refreshMinimapIcon(roomId, null);
+    this.toast('The trial is answered - the hourglass pays in full', '/assets/icons/relic_shield.png');
+    this.play('levelup');
+    this.emitHud();
   }
 
   private lockRoom(roomId: number): void {
@@ -877,44 +1128,180 @@ export class GameScene extends Phaser.Scene implements GameContext {
     if (hasLiving) return;
     room.cleared = true;
     this.unlockRoom(roomId);
-    if (room.type === 'combat' || room.type === 'encounter') {
+    if (room.type === 'challenge' && !this.challengeResolved) {
+      /* trial beaten inside the window */
+      this.addXp(18);
+      this.completeChallenge(roomId);
+    } else if (room.type === 'combat') {
       this.addXp(12);
       this.toast('The room falls silent', '/assets/icons/skull.png');
-      this.rollRoomReward(room);
+      this.openChamberChoice(room);
+    } else if (room.type === 'encounter') {
+      /* champion sanctum: a patron altar remains as the post-fight reward */
+      this.addXp(12);
+      this.toast('The room falls silent', '/assets/icons/skull.png');
+      this.spawnBoonShrine(room);
     }
     this.emitMinimap();
   }
 
-  /** Post-clear bounty: a patron shrine, a potion, or a stray soul. */
-  private rollRoomReward(room: import('../dungeon/generator').Room): void {
-    const rng = new Rng(this.run.seed ^ (this.run.floor * 613) ^ (room.id * 89));
-    const roll = rng.next();
-    if (roll < 0.42) {
-      /* boon shrine at the room center (or a nearby walkable spot) */
-      let sx = (room.cx + 0.5) * TILE;
-      let sy = (room.cy + 0.5) * TILE;
-      if (!this.walkableAtPx(sx, sy)) {
-        outer: for (let r = 1; r <= 3; r++) {
-          for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, -r], [r, -r], [-r, r]]) {
-            const tx = (room.cx + dx + 0.5) * TILE;
-            const ty = (room.cy + dy + 0.5) * TILE;
-            if (this.walkableAtPx(tx, ty)) {
-              sx = tx;
-              sy = ty;
-              break outer;
-            }
+  /** Champion sanctums keep their patron altar at the room center. */
+  private spawnBoonShrine(room: import('../dungeon/generator').Room): void {
+    let sx = (room.cx + 0.5) * TILE;
+    let sy = (room.cy + 0.5) * TILE;
+    if (!this.walkableAtPx(sx, sy)) {
+      outer: for (let r = 1; r <= 3; r++) {
+        for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, -r], [r, -r], [-r, r]]) {
+          const tx = (room.cx + dx + 0.5) * TILE;
+          const ty = (room.cy + dy + 0.5) * TILE;
+          if (this.walkableAtPx(tx, ty)) {
+            sx = tx;
+            sy = ty;
+            break outer;
           }
         }
       }
-      const shrine = new BoonShrine(this, sx, sy);
-      this.interactables.push(shrine);
-      this.refreshMinimapIcon(room.id, 'boon');
-      this.toast('A patron marks this place', PATRONS.void.icon);
-    } else if (roll < 0.62) {
-      this.spawnPickup('potion-h', this.player.x + Phaser.Math.Between(-40, 40), this.player.y + 30, 1);
-    } else if (roll < 0.72) {
-      this.spawnPickup('soul', (room.cx + 0.5) * TILE, (room.cy + 0.5) * TILE, 1);
     }
+    const shrine = new BoonShrine(this, sx, sy);
+    this.interactables.push(shrine);
+    this.refreshMinimapIcon(room.id, 'boon');
+    this.toast('A patron marks this place', PATRONS.void.icon);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* chamber reward choice (phase 4)                                    */
+  /* ------------------------------------------------------------------ */
+
+  /** Post-clear offering: immediate recovery, currency, or a build upgrade,
+      each with its concrete payoff previewed before selection. */
+  private openChamberChoice(room: import('../dungeon/generator').Room): void {
+    if (this.chamberOpen || this.levelupOpen || this.boonOpen) {
+      /* another modal is already up; grant a fallback bounty instead of
+         queueing an interaction the player could miss */
+      this.spawnPickup('potion-h', this.player.x + 30, this.player.y + 24, 1);
+      return;
+    }
+    const rng = new Rng(this.run.seed ^ (this.run.floor * 613) ^ (room.id * 89));
+    const goldAmount = 18 + this.run.floor * 9 + rng.int(0, 10);
+
+    /* build upgrade: a random remaining upgrade, else an unowned relic,
+       else the explicit exhausted-pool fallback */
+    const upgrades = availableUpgrades(this.run);
+    const relics = RELICS.filter((r) => !this.run.relics.some((own) => own.id === r.id));
+    let build: ChamberChoice;
+    if (upgrades.length > 0) {
+      const pick = rng.pick(upgrades);
+      build = {
+        id: `upgrade-${pick.id}`,
+        kind: 'build',
+        name: pick.name,
+        desc: pick.desc,
+        icon: pick.icon,
+        preview: this.upgradePreview(pick.id),
+      };
+    } else if (relics.length > 0) {
+      const pick = rng.pick(relics);
+      build = {
+        id: `relic-${pick.id}`,
+        kind: 'build',
+        name: pick.name,
+        desc: pick.desc,
+        icon: pick.icon,
+        preview: relicPreview(pick),
+      };
+    } else {
+      build = {
+        id: 'fallback-vigor',
+        kind: 'recovery',
+        name: 'Pure Vigor',
+        desc: 'Every offering is spent. The dark mends you instead.',
+        icon: '/assets/icons/relic_shield.png',
+        preview: `+${Math.round(this.run.stats.maxHp * 0.25)} health now`,
+      };
+    }
+
+    const healAmount = Math.round(this.run.stats.maxHp * 0.35);
+    const choices: ChamberChoice[] = [
+      {
+        id: 'recovery',
+        kind: 'recovery',
+        name: 'Mending Light',
+        desc: 'The chamber breathes warmth into your wounds.',
+        icon: '/assets/icons/health_potion.png',
+        preview: `+${healAmount} health now`,
+      },
+      {
+        id: 'bounty',
+        kind: 'bounty',
+        name: 'Hidden Cache',
+        desc: 'Coins tucked where the dead could not spend them.',
+        icon: '/assets/icons/gold.png',
+        preview: `+${goldAmount} gold now`,
+      },
+      build,
+    ];
+    this.chamberOpen = true;
+    this.pendingChamber = choices;
+    this.pendingChamberRoom = room.id;
+    this.play('chest');
+    bus.emit('chamber', { choices });
+    this.pauseGame('chamber');
+  }
+
+  /** Concrete stat delta for an upgrade offer. */
+  private upgradePreview(id: UpgradeChoice['id']): string {
+    const stacks = this.run.stacks(id) + 1;
+    switch (id) {
+      case 'maxhp': return `+20 max health (to ${PLAYER_BASE.maxHp + 20 * stacks})`;
+      case 'meleeDmg': return `blade damage +15% (to ${Math.round(this.run.stats.meleeDamage * (1 + 0.15))})`;
+      case 'spellDmg': return 'spell damage +20%';
+      case 'atkSpeed': return 'attack speed +12%';
+      case 'crit': return `crit chance +8% (to ${Math.round((this.run.stats.critChance + 0.08) * 100)}%)`;
+      case 'moveSpeed': return 'move speed +10%';
+      case 'dodgeCd': return 'dodge recovery 25% sooner';
+      case 'maxMana': return `+20 max mana (to ${PLAYER_BASE.maxMana + 20 * stacks})`;
+      case 'fireSplash': return 'fireball splash +40%';
+      case 'extraBolt': return '+1 arcane missile';
+      case 'frostRadius': return 'frost radius +25%';
+      case 'healing': return 'potions and shrines heal 30% more';
+      case 'lifesteal': return 'melee hits return 6% as health';
+      case 'armor': return 'all damage taken -2';
+      default: return '';
+    }
+  }
+
+  private chooseChamber(index: number): void {
+    if (!this.chamberOpen) return;
+    const choices = this.pendingChamber;
+    const room = this.dungeon.rooms[this.pendingChamberRoom];
+    this.chamberOpen = false;
+    this.pendingChamber = null;
+    this.pendingChamberRoom = -1;
+    if (choices && index >= 0 && index < choices.length) {
+      const choice = choices[index];
+      if (choice.kind === 'recovery') {
+        this.player.heal(this.run.stats.maxHp * (choice.id === 'fallback-vigor' ? 0.25 : 0.35));
+        this.play('shrine');
+      } else if (choice.kind === 'bounty') {
+        const goldAmount = 18 + this.run.floor * 9;
+        this.dropGold(this.player.x + Phaser.Math.Between(-20, 20), this.player.y + 26, goldAmount, 4);
+        this.play('coin');
+      } else if (choice.id.startsWith('upgrade-')) {
+        const id = choice.id.replace('upgrade-', '') as UpgradeChoice['id'];
+        this.run.hp = this.player.hp;
+        this.run.mana = this.player.mana;
+        this.run.addUpgrade(id);
+        this.player.hp = Math.min(this.run.hp, this.run.stats.maxHp);
+        this.player.mana = this.run.mana;
+        this.toast(`${choice.name} accepted`, choice.icon);
+      } else if (choice.id.startsWith('relic-')) {
+        const def = RELICS.find((r) => r.id === choice.id.replace('relic-', ''));
+        if (def) this.grantRelic(def);
+      }
+      this.emitHud();
+    }
+    if (room && room.icon === 'chest') this.refreshMinimapIcon(room.id, null);
+    if (this.state === 'paused' && !this.levelupOpen && !this.boonOpen) this.resumeGame();
   }
 
   private startBossIntro(): void {
@@ -1203,6 +1590,17 @@ export class GameScene extends Phaser.Scene implements GameContext {
     const rid = this.roomOfPlayer();
     if (rid !== this.currentRoomId && rid >= 0) this.enterRoom(rid);
 
+    /* timed challenge countdown: fails open when the sand runs out */
+    if (this.challengeRoomId >= 0 && this.now >= this.challengeEndsAt) {
+      this.failChallenge();
+    }
+
+    /* trap plates: the warning fill animates every frame while armed */
+    for (const plate of this.trapPlates) plate.tickWarning();
+
+    /* interactables with per-frame behavior (trap plates et al.) */
+    for (const it of this.interactables) it.update?.(dt);
+
     /* interaction prompt */
     this.updatePrompt();
 
@@ -1214,7 +1612,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
     }
 
     /* level-up queue */
-    if (!intro && this.run.pendingLevelUps > 0 && !this.levelupOpen && !this.boonOpen) {
+    if (!intro && this.run.pendingLevelUps > 0 && !this.levelupOpen && !this.boonOpen && !this.chamberOpen) {
       this.openLevelUp();
     }
 
@@ -1388,10 +1786,14 @@ export class GameScene extends Phaser.Scene implements GameContext {
     const room = this.dungeon.rooms[this.currentRoomId];
     const enemiesLeft = this.sealedTiles.size ? this.enemies.reduce((n, e) =>
       n + Number(e.alive && e.roomId === this.currentRoomId), 0) : 0;
+    const challengeLeft = this.challengeRoomId >= 0 ? Math.max(0, this.challengeEndsAt - this.now) : null;
     const hud: HudState = {
       boltCharge: this.player.boltCharge,
-      objective: enemiesLeft ? `Clear the chamber · ${enemiesLeft} remain` :
+      objective: challengeLeft !== null ? `Trial - clear before the sand runs out (${Math.ceil(challengeLeft / 1000)}s)` :
+        enemiesLeft ? `Clear the chamber · ${enemiesLeft} remain` :
         room?.type === 'rest' ? 'Touch the healing shrine' :
+        room?.type === 'trap' ? 'Claim the guarded cache' :
+        room?.type === 'secret' ? "Accept the patron's gift" :
         this.run.floor < MAX_FLOOR ? 'Find the descent' :
         this.dungeon.rooms[this.dungeon.bossRoom].cleared ? 'Enter the seal' : 'Find the Fallen Necromancer',
       hp: this.player.hp,
@@ -1406,6 +1808,7 @@ export class GameScene extends Phaser.Scene implements GameContext {
       maxFloor: MAX_FLOOR,
       floorName: FLOORS[Math.min(this.run.floor, FLOORS.length) - 1].name,
       potions: { ...this.run.potions },
+      challengeMs: challengeLeft,
       cooldowns: this.player.cooldownFractions(),
       relics: this.hudRelics,
       boons: this.hudBoons,
@@ -1417,14 +1820,20 @@ export class GameScene extends Phaser.Scene implements GameContext {
 
   private emitMinimap(): void {
     if (!this.dungeon || !this.player) return;
-    /* fingerprint the room state: discovery flags, clear flags and the
-     current-room marker are the only things that ever change after a floor
-     is generated. A matching fingerprint means the cached room/corridor
-     arrays (and their identities) can be reused as-is. */
-    let fp = this.currentRoomId;
+    /* fingerprint the room state: discovery flags, clear flags, the
+     current-room marker, reward hints, sealed-gate count and secret-door
+     topology are everything that changes after a floor is generated. A
+     matching fingerprint means the cached room/corridor arrays (and their
+     identities) can be reused as-is; the player marker is emitted fresh
+     every tick regardless. */
+    let fp = this.currentRoomId + this.sealedTiles.size * 65537;
     for (const r of this.dungeon.rooms) {
       fp = (Math.imul(fp, 31) + Number(r.discovered) + 2 * Number(r.cleared) +
-        4 * ([null, 'merchant', 'champion', 'boon', 'shrine'].indexOf(r.icon ?? null) + 1)) | 0;
+        4 * Number(r.hinted) +
+        8 * ([null, 'merchant', 'champion', 'boon', 'shrine', 'challenge', 'trap', 'secret', 'chest'].indexOf(r.icon ?? null) + 1)) | 0;
+    }
+    for (const door of this.dungeon.secretDoors) {
+      fp = (Math.imul(fp, 33) + Number(door.opened)) | 0;
     }
     if (fp !== this.minimapFp || this.minimapFloorFor !== this.dungeon) {
       this.minimapFp = fp;
@@ -1439,9 +1848,10 @@ export class GameScene extends Phaser.Scene implements GameContext {
         cleared: r.cleared,
         current: r.id === this.currentRoomId,
         icon: r.icon ?? null,
+        hinted: r.hinted,
         lockedTiles: r.gates.flatMap((gate) => gate.tiles.filter((t) => this.sealedTiles.has(t.y * this.dungeon.width + t.x))),
       }));
-      this.minimapCorridors = this.dungeon.corridors.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h, roomA: c.roomA, roomB: c.roomB }));
+      this.minimapCorridors = this.dungeon.corridors.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h, roomA: c.roomA, roomB: c.roomB, hidden: c.hidden === true }));
     }
     const data: MinimapData = {
       rooms: this.minimapRooms,
@@ -1463,7 +1873,10 @@ export class GameScene extends Phaser.Scene implements GameContext {
     this.run.mana = this.player?.mana ?? this.run.mana;
     const data = this.run.toSave();
     try {
-      window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      /* validate before writing: a record that cannot survive its own
+         round-trip never replaces the last good checkpoint */
+      const json = JSON.stringify(data);
+      if (parseSave(json)) window.localStorage.setItem(SAVE_KEY, json);
     } catch {
       /* storage unavailable */
     }

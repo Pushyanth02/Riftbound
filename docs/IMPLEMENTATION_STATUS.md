@@ -78,6 +78,37 @@
   generate, tests, Pages build, artifact checks and `tsc --noEmit` on every
   push/PR; deploy on `main`.
 
+### Phases 2-6 pass (this build)
+
+- **Room templates with reservations** (phase 2): authored layouts and a
+  reserved-zone pass (gate thresholds, boss landing, interaction approach
+  tiles) in the generator; every room records the template it used.
+- **Optional routes** (phase 2): timed challenge rooms (fail-open trial,
+  guaranteed relic on success), trap chambers (telegraphed cycling floor
+  plates, guarded chest, never locks) and secret branches (cracked-wall
+  door, isolated topology, boon shrine + bounty, dashed map clue).
+- **Live map markers** (phase 2): challenge/trap/secret/cache icons derived
+  from room state and consumed on looting; hidden secret corridors; hint
+  outlines; shape-matching legend; topology-aware minimap cache.
+- **Enemy counters** (phase 3): Crypt Sentinel (frontal 65% DR, committed
+  bash, +50% exposed flank window) and Rift Chanter (interruptible cast,
+  stagger + retreat, room-local summon cap, volley at cap) in the floor 2/3
+  pools.
+- **Path recovery & pacing** (phase 3): bounded detours, room enemy cap,
+  staggered activation cascades, action-sequence guards that cancel pending
+  boss/champion volleys on interrupt/phase/death, ring-spread bursts with
+  safe ground, immediate boss-bar re-emits on phase changes.
+- **Chamber rewards & shop** (phase 4): post-clear choice modal with payoff
+  previews and exhausted-pool fallback; stable per-floor merchant offers
+  with limited priced rerolls and stat-delta previews.
+- **Single-application gold pipeline** (phase 4): `splitBounty` applies
+  modifiers once to the rolled bounty before splitting piles.
+- **Versioned saves** (phase 4): `SAVE_VERSION` 2 with v1 fixture support,
+  future-version refusal and validate-before-write round-trips.
+- **Keyboard-driven overlays** (phase 5): arrows/numbers/Enter/Esc across
+  the menu, pause, level-up, boon, chamber and shop surfaces; HUD trial
+  countdown timer.
+
 ### Performance pass (verified 2026-11-26)
 - Zero per-frame array allocation in the update loop (in-place compaction)
 - Scratch-vector reuse in movement, separation and targeting hot paths

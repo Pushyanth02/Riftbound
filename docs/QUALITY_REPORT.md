@@ -1,11 +1,44 @@
 # Quality Report
 
 Testing was performed with the agent-browser automated browser (Chromium,
-headless) against the running dev server (`bun run dev`, port 3000). Every
-test below was actually executed; failures were fixed and re-verified unless
-noted.
+headless) against the running dev server and the served static export.
+Every test below was actually executed; failures were fixed and re-verified
+unless noted.
+
+## Phases 2-6 gates
+
+| # | Test | Result | Notes |
+|---|---|---|---|
+| P1 | Static export boots clean | PASS | `build:pages` served under `/Riftbound/` (scripts/serve-pages.ts); menu, pacts, run start, HUD, pause and resume with zero console errors |
+| P2 | Chamber choice on combat clear | PASS | Gates unlock, modal opens with previews; number key 2 paid the bounty (gold 0 -> 29 collected from the split piles) |
+| P3 | Level-up chains after chamber | PASS | Chamber resolves, game resumes, pending level-up opens and applies via number key |
+| P4 | Timed challenge | PASS | Room seals, HUD countdown (31 s, `role="timer"` chip), in-time clear pays gold + souls + guaranteed relic (bone_ring granted after the level-up resolved) |
+| P5 | Trap chamber | PASS | 4 plates armed only while inside; stationary player took plate damage; room never locks (sealedTiles 0) |
+| P6 | Secret branch | PASS | Cracked-wall prompt appears near the door; interact flips door tiles 0 -> 1, reveals the hidden corridor, discovers the room, clears the hint |
+| P7 | Shop reroll | PASS | R key: stock 2 -> 1 (200 -> 188 gold, relic changed), then 1 -> 0 (188 -> 168); button disables with "Reroll stock exhausted"; double-buy guard holds |
+| P8 | Sentinel counter | PASS | Frontal 20 -> 7 damage (exactly 65% DR); flank 20 -> 20; bash observed, exposure window opened ~950 ms in, exposure damage 20 -> 30 (+50%) |
+| P9 | Chanter counter | PASS | Cast interrupted by an 8-damage hit: state telegraph -> hurt (620 ms stagger), 110 px retreat; summons held the room-local cap (3 bloodmons beside a resident sentinel); at cap it volleys instead |
+| P10 | Restart teardown | PASS | Instrumented restart: enemies 25 -> 0 -> fresh spawns; no stale entities |
+| P11 | WASD via synthetic keys | PASS | Window KeyboardEvent (KeyW) registers in Phaser and drives ~160 px/s movement |
+| P12 | Generator invariants | PASS | 128 seeds x 3 floors: objective reachable with doors closed, secrets reachable open, approach tiles walkable, pillars solid, gates reachable, fallback valid, determinism |
+| P13 | Economy invariants | PASS | splitBounty totals preserved across Barren/Grave Bell/combined multipliers; run-level goldMult 0.5 / 1.25 / 0.625 verified |
+| P14 | Save versioning | PASS | v1 fixture loads with defaults; v2 round-trips exactly; version 3 refused; malformed records refused |
+| P15 | Full audit | PASS | Every upgrade, relic, boon and pact moves at least one derived stat; caught and fixed fireSplash bypassing the pipeline |
+
+The dev-only `window.__riftbound` QA handle (scene reference, stripped from
+production reasoning by NODE_ENV) drove the controlled-state checks above;
+the export itself was driven purely through UI clicks and keyboard events.
+
+Outstanding manual gates (recorded, not executed here): unassisted weapon
+playthroughs, unassisted Fury phase-3, resolution captures, audio pass,
+physical-GPU profiling.
 
 ## Directive test gates
+
+The original directive gates from the prior checkpoint were re-validated
+where they intersect this build (launch, menu, run start, pause, restart,
+minimap, shop, chest, shrine) and remain green; see the table above for the
+new-feature gates and git history for the original runs.
 
 | # | Test | Result | Notes |
 |---|---|---|---|
@@ -29,7 +62,7 @@ noted.
 | 17b | Continue restores a saved run | PASS | Save persisted at floor transitions; Continue resumed floor 3 with relics/level intact; save cleared on victory |
 | 18 | Settings persist correctly | PASS | Master volume change written to localStorage and read back |
 | 19 | Window resizing preserves usability | PASS | 1600x900 and 900x700 viewports verified; camera zoom adapts (snapped to 0.25 steps) |
-| 20 | Production build succeeds | NOT RUN | Sandbox policy forbids `bun run build`; TypeScript strict check (`tsc --noEmit`) and ESLint both pass clean |
+| 20 | Production build succeeds | PASS | `bun run build` + `bun run build:pages` both succeed on this build (prior note: sandbox policy previously forbade it) |
 
 ## Additional flows verified
 

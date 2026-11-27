@@ -7,6 +7,7 @@ import { bus } from '@/game/bus';
 import type {
   BoonChoice,
   BossState,
+  ChamberChoice,
   HudState,
   MinimapData,
   WeaponId,
@@ -28,6 +29,9 @@ const SHARDS_KEY = 'riftbound.shards';
 
 /** Patron boon offer currently awaiting a choice (mirrors the bus event). */
 type BoonPrompt = { patron: PatronId; choices: BoonChoice[] };
+
+/** Post-clear chamber reward currently awaiting a choice. */
+type ChamberPrompt = { choices: ChamberChoice[] };
 
 export interface BestRecord {
   bestFloor: number;
@@ -108,6 +112,7 @@ interface GameStore {
   floorCard: { floor: number; name: string } | null;
   levelup: { level: number; choices: UpgradeChoice[] } | null;
   boon: BoonPrompt | null;
+  chamber: ChamberPrompt | null;
   runStats: RunStats | null;
   settings: Settings;
   best: BestRecord;
@@ -132,6 +137,7 @@ interface GameStore {
   setFloorCard: (f: { floor: number; name: string } | null) => void;
   setLevelup: (l: { level: number; choices: UpgradeChoice[] } | null) => void;
   setBoon: (b: BoonPrompt | null) => void;
+  setChamber: (c: ChamberPrompt | null) => void;
   setRunStats: (s: RunStats) => void;
   pushToast: (t: Toast) => void;
   dropToast: (id: number) => void;
@@ -153,10 +159,12 @@ interface GameStore {
   cmdResume: () => void;
   cmdUpgrade: (index: number) => void;
   cmdBoon: (index: number) => void;
+  cmdChamber: (index: number) => void;
   cmdCast: (slot: 'melee' | 'fireball' | 'frost' | 'bolt' | 'whirl' | 'dodge') => void;
   cmdPotion: (kind: 'health' | 'mana') => void;
   cmdInventory: (open: boolean) => void;
   cmdShopBuy: (index: number) => void;
+  cmdShopReroll: () => void;
   cmdShopClose: () => void;
   cmdPactsBack: () => void;
 }
@@ -175,6 +183,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   floorCard: null,
   levelup: null,
   boon: null,
+  chamber: null,
   runStats: null,
   settings: loadSettings(),
   best: loadBest(),
@@ -198,6 +207,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setFloorCard: (floorCard) => set({ floorCard }),
   setLevelup: (levelup) => set({ levelup }),
   setBoon: (boon) => set({ boon }),
+  setChamber: (chamber) => set({ chamber }),
   setRunStats: (runStats) => set({ runStats }),
   pushToast: (t) =>
     set((st) => ({
@@ -264,10 +274,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   cmdResume: () => bus.command({ type: 'resume' }),
   cmdUpgrade: (index) => bus.command({ type: 'upgrade', index }),
   cmdBoon: (index) => bus.command({ type: 'boon', index }),
+  cmdChamber: (index) => bus.command({ type: 'chamber', index }),
   cmdCast: (slot) => bus.command({ type: 'cast', slot }),
   cmdPotion: (kind) => bus.command({ type: 'potion', kind }),
   cmdInventory: (open) => bus.command({ type: 'inventory', open }),
   cmdShopBuy: (index) => bus.command({ type: 'shop:buy', index }),
+  cmdShopReroll: () => bus.command({ type: 'shop:reroll' }),
   cmdShopClose: () => bus.command({ type: 'shop:close' }),
   cmdPactsBack: () => bus.command({ type: 'pacts:back' }),
 }));
@@ -314,6 +326,10 @@ export function initBusBridge(): void {
     s.getState().setBoon(b);
     s.getState().setUi('boon');
   });
+  bus.on('chamber', (c) => {
+    s.getState().setChamber(c);
+    s.getState().setUi('chamber');
+  });
   bus.on('toast', (t) => {
     s.getState().pushToast(t);
     window.setTimeout(() => s.getState().dropToast(t.id), 3600);
@@ -330,7 +346,15 @@ export function initBusBridge(): void {
     s.getState().updateBestFromStats(stats);
     s.getState().grantShards(stats.shards);
   });
-  bus.on('ui:state', ({ state }) => s.getState().setUi(state));
+  bus.on('ui:state', ({ state }) => {
+    s.getState().setUi(state);
+    /* game-side state transitions close whichever choice modal was open */
+    if (state === 'playing') {
+      s.getState().setLevelup(null);
+      s.getState().setBoon(null);
+      s.getState().setChamber(null);
+    }
+  });
   bus.on('shop', (shop) => {
     s.getState().setShop(shop);
     s.getState().setUi(shop ? 'shop' : 'playing');

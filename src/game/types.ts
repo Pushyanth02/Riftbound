@@ -8,6 +8,7 @@ export type UiState =
   | 'paused'
   | 'levelup'
   | 'boon'
+  | 'chamber'
   | 'inventory'
   | 'shop'
   | 'settings'
@@ -17,7 +18,7 @@ export type UiState =
   | 'victory';
 
 export type WeaponId = 'sword' | 'knife' | 'cleaver';
-export type RoomType = 'start' | 'combat' | 'rest' | 'treasure' | 'encounter' | 'boss' | 'exit';
+export type RoomType = 'start' | 'combat' | 'rest' | 'treasure' | 'encounter' | 'boss' | 'exit' | 'challenge' | 'trap' | 'secret';
 
 export type UpgradeId =
   | 'maxhp'
@@ -99,6 +100,8 @@ export interface HudState {
   maxFloor: number;
   floorName: string;
   potions: { health: number; mana: number };
+  /** remaining ms on the active timed challenge (null when none) */
+  challengeMs: number | null;
   /** remaining cooldown fraction 0..1 keyed by slot */
   cooldowns: {
     melee: number;
@@ -136,7 +139,9 @@ export interface MinimapRoom {
   current: boolean;
   lockedTiles: { x: number; y: number }[];
   /** marker for special contents (only meaningful when discovered) */
-  icon?: 'merchant' | 'champion' | 'boon' | 'shrine' | null;
+  icon?: 'merchant' | 'champion' | 'boon' | 'shrine' | 'challenge' | 'trap' | 'secret' | 'chest' | null;
+  /** reward clue shown before the room is entered/opened (dashed outline) */
+  hinted?: boolean;
 }
 
 export interface MinimapCorridor {
@@ -146,6 +151,8 @@ export interface MinimapCorridor {
   h: number;
   roomA: number;
   roomB: number;
+  /** secret corridors stay hidden until their cracked wall opens */
+  hidden?: boolean;
 }
 
 export interface MinimapData {
@@ -202,11 +209,25 @@ export interface ShopWare {
   price: number;
   kind: 'potion-h' | 'potion-m' | 'relic' | 'boon';
   sold: boolean;
+  /** concrete stat delta or effect preview shown before purchase */
+  preview?: string;
 }
 
 export interface ShopState {
   wares: ShopWare[];
   gold: number;
+  /** price of the next reroll (null when the reroll stock is exhausted) */
+  rerollPrice: number | null;
+}
+
+export interface ChamberChoice {
+  id: string;
+  kind: 'recovery' | 'bounty' | 'build';
+  name: string;
+  desc: string;
+  icon: string;
+  /** observable payoff preview (stat delta or conditional effect) */
+  preview: string;
 }
 
 /* ------------------------- bus event map ------------------------- */
@@ -230,6 +251,7 @@ export interface BusEvents {
   'ui:state': { state: UiState };
   'save:exists': { exists: boolean; info?: SaveInfo };
   shop: ShopState | null;
+  chamber: { choices: ChamberChoice[] } | null;
 }
 
 export type BusEventKey = keyof BusEvents;
@@ -243,12 +265,14 @@ export type Command =
   | { type: 'resume' }
   | { type: 'upgrade'; index: number }
   | { type: 'boon'; index: number }
+  | { type: 'chamber'; index: number }
   | { type: 'pacts:back' }
   | { type: 'cast'; slot: 'melee' | 'fireball' | 'frost' | 'bolt' | 'whirl' | 'dodge' }
   | { type: 'potion'; kind: 'health' | 'mana' }
   | { type: 'settings'; settings: Settings }
   | { type: 'inventory'; open: boolean }
   | { type: 'shop:buy'; index: number }
+  | { type: 'shop:reroll' }
   | { type: 'shop:close' };
 
 export interface BusCommands {

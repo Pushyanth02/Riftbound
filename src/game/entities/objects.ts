@@ -1,7 +1,8 @@
 /* Projectiles, pickups and interactable objects (chests, shrines, portals,
-   merchant, boon shrines, rift barriers). */
+   merchant, boon shrines, rift barriers, trap plates, cracked secret
+   doors). */
 import * as Phaser from 'phaser';
-import { TILE } from '../config';
+import { OPTIONAL_ROOMS, TILE } from '../config';
 import { projectileStepCount } from '../combat';
 import type { GameContext, ProjectileSpawn } from '../ctx';
 import { Entity, dist2, gridLineOfSight } from './base';
@@ -270,7 +271,9 @@ export class Pickup extends Entity {
     const player = this.ctx.player;
     switch (this.kind) {
       case 'coin':
-        this.ctx.run.gold += Math.max(1, Math.round(this.value * this.ctx.run.stats.goldMult));
+        /* gold modifiers are applied once to the total bounty at drop time
+           (splitBounty), so the pile value is final here */
+        this.ctx.run.gold += this.value;
         this.ctx.play('coin');
         break;
       case 'heart':
@@ -283,7 +286,7 @@ export class Pickup extends Entity {
         this.ctx.play('pickup');
         break;
       case 'gem':
-        this.ctx.run.gold += Math.max(1, Math.round(this.value * this.ctx.run.stats.goldMult));
+        this.ctx.run.gold += this.value;
         this.ctx.play('coin');
         this.ctx.fx.spawn('treasure_glint', this.x, this.y, { scale: 0.8, duration: 600 });
         break;
@@ -331,13 +334,15 @@ export class Chest implements Interactable {
   active = true;
   object: Phaser.GameObjects.Image;
   private ctx: GameContext;
+  private roomId: number;
   private opened = false;
   private glint: Phaser.GameObjects.Sprite;
 
-  constructor(ctx: GameContext, x: number, y: number) {
+  constructor(ctx: GameContext, x: number, y: number, roomId = -1) {
     this.ctx = ctx;
     this.x = x;
     this.y = y;
+    this.roomId = roomId;
     this.object = ctx.add.image(x, y, 'icon_chest');
     this.object.setScale(1.8);
     this.object.setDepth(y);
@@ -355,6 +360,7 @@ export class Chest implements Interactable {
     this.glint.destroy();
     this.ctx.fx.spawn('chest_open', this.x, this.y - 6, { scale: 1.2, depth: this.y + 2 });
     this.ctx.play('chest');
+    if (this.roomId >= 0) this.ctx.onRoomLooted?.(this.roomId);
     const rng = new Phaser.Math.RandomDataGenerator([String(this.x ^ this.y)]);
     /* gold burst */
     const gold = rng.between(15, 40);
@@ -598,5 +604,207 @@ export class Barrier {
   destroy(): void {
     this.scene.tweens.killTweensOf(this.gfx);
     this.gfx.destroy();
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Trap plates (telegraphed floor hazards)                             */
+/* ------------------------------------------------------------------ */
+
+/** A floor plate in the trap chamber. Entry cue: the plate glows as the
+    player approaches; it fires on a fixed warn -> spike -> cool cycle so
+    the chamber is crossable with timing and always leavable. */
+export class TrapPlate implements Interactable {
+  x: number;
+  y: number;
+  prompt = '';
+  active = false; /* not an E-interactable: hazard only */
+  object: Phaser.GameObjects.Graphics;
+  private ctx: GameContext;
+  private roomId: number;
+  private phase: 'cool' | 'warn' | 'fire' = 'cool';
+  private phaseUntil = 0;
+  private armed = false;
+
+  constructor(ctx: GameContext, x: number, y: number, roomId: number) {
+    this.ctx = ctx;
+    this.x = x;
+    this.y = y;
+    this.roomId = roomId;
+    this.object = ctx.add.graphics();
+    this.object.setDepth(y - 1);
+    this.phaseUntil = ctx.now + 800 + Math.random() * 1400;
+    this.drawIdle();
+  }
+
+  /** Plates only run while the player is inside the chamber. */
+  setArmed(armed: boolean): void {
+    this.armed = armed;
+  }
+
+  update(_dt: number): void {
+    if (!this.armed) return;
+    if (this.ctx.now < this.phaseUntil) return;
+    switch (this.phase) {
+      case 'cool':
+        this.phase = 'warn';
+        this.phaseUntil = this.ctx.now + OPTIONAL_ROOMS.trap.warnMs;
+        this.drawWarn(0);
+        break;
+      case 'warn':
+        this.phase = 'fire';
+        this.phaseUntil = this.ctx.now + OPTIONAL_ROOMS.trap.fireMs;
+        this.fire();
+        break;
+      case 'fire':
+      default:
+        this.phase = 'cool';
+        this.phaseUntil = this.ctx.now + OPTIONAL_ROOMS.trap.coolMs;
+        this.drawIdle();
+        break;
+    }
+  }
+
+  private fire(): void {
+    const cfg = OPTIONAL_ROOMS.trap;
+    this.ctx.fx.spawn('shadow_spikes', this.x, this.y, { scale: 0.8, depth: this.y + 1 });
+    this.ctx.play('fireImpact');
+    this.object.clear();
+    this.object.fillStyle(0xd95252, 0.4);
+    this.object.fillCircle(this.x, this.y, cfg.plateRadius * 0.55);
+    const p = this.ctx.player;
+    const r = cfg.plateRadius + p.radius;
+    if (dist2(this.x, this.y, p.x, p.y) <= r * r && p.lineOfSightFrom(this.x, this.y)) {
+      p.takeDamage(Math.max(1, Math.round(cfg.plateDamage * this.ctx.run.pactMult('enemyDmgMult'))), this.x, this.y);
+    }
+  }
+
+  private drawIdle(): void {
+    this.object.clear();
+    this.object.lineStyle(1, 0x544b68, 0.55);
+    this.object.strokeCircle(this.x, this.y, 9);
+    this.object.fillStyle(0x25202f, 0.35);
+    this.object.fillCircle(this.x, this.y, 8);
+  }
+
+  private drawWarn(progress: number): void {
+    const cfg = OPTIONAL_ROOMS.trap;
+    this.object.clear();
+    this.object.lineStyle(1, 0xd95252, 0.7);
+    this.object.strokeCircle(this.x, this.y, cfg.plateRadius * 0.55);
+    /* filling warning disc: readable even at the map's edge of vision */
+    this.object.fillStyle(0xd95252, 0.18 + 0.2 * progress);
+    this.object.fillCircle(this.x, this.y, cfg.plateRadius * 0.55 * (0.35 + 0.65 * progress));
+  }
+
+  /** Warning fill is animated cheaply by the scene's plate ticker. */
+  tickWarning(): void {
+    if (this.phase !== 'warn') return;
+    const total = OPTIONAL_ROOMS.trap.warnMs;
+    const progress = 1 - Math.max(0, this.phaseUntil - this.ctx.now) / total;
+    this.drawWarn(Math.min(1, Math.max(0, progress)));
+  }
+
+  interact(): void {
+    /* hazard, not an interaction target */
+  }
+
+  destroy(): void {
+    this.object.destroy();
+  }
+
+  get room(): number {
+    return this.roomId;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Cracked secret doors                                                */
+/* ------------------------------------------------------------------ */
+
+/** The sealed mouth of a secret branch: two wall blocks with a hairline
+    crack and a faint gold glint (the entry cue). Breaking it flips the
+    walkable grid and the map topology. */
+export class CrackedWall implements Interactable {
+  x: number;
+  y: number;
+  prompt = 'Break the cracked wall';
+  active = true;
+  object: Phaser.GameObjects.Image;
+  private ctx: GameContext;
+  private doorId: number;
+  private blocks: Phaser.GameObjects.Image[] = [];
+  private glint: Phaser.GameObjects.Sprite | null = null;
+  private broken = false;
+
+  constructor(ctx: GameContext, doorId: number, tiles: { x: number; y: number }[]) {
+    this.ctx = ctx;
+    this.doorId = doorId;
+    /* centroid of the door tiles */
+    let sx = 0;
+    let sy = 0;
+    for (const t of tiles) {
+      sx += (t.x + 0.5) * TILE;
+      sy += (t.y + 0.5) * TILE;
+    }
+    this.x = sx / tiles.length;
+    this.y = sy / tiles.length;
+    for (const t of tiles) {
+      const img = ctx.add.image((t.x + 0.5) * TILE, (t.y + 0.5) * TILE, 'tiles_walls', 21);
+      img.setDepth((t.y + 1) * TILE - 1);
+      img.setTint(0x8a8296);
+      this.blocks.push(img);
+    }
+    this.object = this.blocks[0];
+    if (this.blocks.length > 0) {
+      this.glint = ctx.add.sprite(this.x, this.y - 6, 'fx_treasure_glint', 0);
+      this.glint.play('fx_treasure_glint');
+      this.glint.setDepth(this.y + 2);
+      this.glint.setAlpha(0.5);
+      this.glint.setScale(0.65);
+    }
+    /* the interaction anchor must sit on walkable host-side ground: the
+       door tiles themselves are solid, and LOS to a solid tile always
+       fails, which would hide the prompt forever */
+    const door = ctx.dungeon.secretDoors[doorId];
+    const host = door ? ctx.dungeon.rooms[door.fromRoom] : null;
+    if (host) {
+      const hx = (host.cx + 0.5) * TILE;
+      const hy = (host.cy + 0.5) * TILE;
+      const dx = hx - this.x;
+      const dy = hy - this.y;
+      const len = Math.hypot(dx, dy) || 1;
+      for (const r of [1.6, 1.1, 2.2, 0.6]) {
+        const ax = this.x + (dx / len) * TILE * r;
+        const ay = this.y + (dy / len) * TILE * r;
+        if (ctx.walkableAtPx(ax, ay)) {
+          this.x = ax;
+          this.y = ay;
+          break;
+        }
+      }
+    }
+  }
+
+  interact(): void {
+    if (this.broken) return;
+    this.broken = true;
+    this.active = false;
+    this.ctx.openSecretDoor?.(this.doorId);
+    this.ctx.fx.shake(0.006, 240);
+    this.ctx.play('chest');
+    this.ctx.fx.spawn('implosion', this.x, this.y, { scale: 0.8 });
+    this.ctx.fx.spawn('death_poof', this.x, this.y, { scale: 1 });
+    for (const b of this.blocks) b.destroy();
+    this.blocks = [];
+    this.glint?.destroy();
+    this.glint = null;
+  }
+
+  destroy(): void {
+    for (const b of this.blocks) b.destroy();
+    this.blocks = [];
+    this.glint?.destroy();
+    this.glint = null;
   }
 }

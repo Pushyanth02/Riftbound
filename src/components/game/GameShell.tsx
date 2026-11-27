@@ -16,6 +16,7 @@ import ControlsPanel from './ControlsPanel';
 import CreditsPanel from './CreditsPanel';
 import LevelUpModal from './LevelUpModal';
 import BoonModal from './BoonModal';
+import ChamberChoicePanel from './ChamberChoicePanel';
 import PactPanel from './PactPanel';
 import InventoryPanel from './InventoryPanel';
 import ShopPanel from './ShopPanel';
@@ -85,6 +86,7 @@ export default function GameShell() {
       ui === 'paused' ||
       ui === 'levelup' ||
       ui === 'boon' ||
+      ui === 'chamber' ||
       ui === 'inventory' ||
       ui === 'shop' ||
       (isInfoPanel && panelReturn === 'paused'));
@@ -109,6 +111,7 @@ export default function GameShell() {
       {ui === 'paused' && <PauseMenu />}
       {ui === 'levelup' && <LevelUpModal />}
       {ui === 'boon' && <BoonModal />}
+      {ui === 'chamber' && <ChamberChoicePanel />}
       {ui === 'inventory' && <InventoryPanel />}
       {ui === 'shop' && <ShopPanel />}
       {ui === 'settings' && <SettingsPanel />}

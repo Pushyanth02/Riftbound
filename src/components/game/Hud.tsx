@@ -341,6 +341,18 @@ export default function Hud() {
       {boss && <BossBar boss={boss} />}
 
       {!boss && <p className="absolute left-1/2 top-5 -translate-x-1/2 bg-[var(--ink)]/80 px-3 py-1 text-center font-body text-sm text-[var(--gold)]">{hud.objective}</p>}
+      {/* timed trial countdown: the sand itself, clear of the boss bar */}
+      {hud.challengeMs !== null && hud.challengeMs > 0 && (
+        <div
+          className="absolute left-1/2 top-14 -translate-x-1/2 border border-[rgba(232,207,154,0.55)] bg-[rgba(20,14,29,0.9)] px-3 py-1"
+          role="timer"
+          aria-label={`Trial time remaining ${Math.ceil(hud.challengeMs / 1000)} seconds`}
+        >
+          <span className={cn('font-display text-sm font-bold tabular-nums tracking-widest', hud.challengeMs < 8000 ? 'text-[#d95252]' : 'text-[#e8cf9a]')}>
+            {Math.floor(hud.challengeMs / 60000)}:{String(Math.floor((hud.challengeMs % 60000) / 1000)).padStart(2, '0')}
+          </span>
+        </div>
+      )}
       {hud.boltCharge > 0 && <div className="absolute bottom-24 left-1/2 -translate-x-1/2 text-center text-xs text-[var(--bone)]">
         {hud.boltCharge < 1 ? 'Charging Arcane Bolt' : hud.mana >= PLAYER_BASE.boltMana + PLAYER_BASE.boltChargeMana ? 'Release for piercing bolt' : 'Release for Arcane Bolt'}
         <div className="mt-1 h-1 bg-[var(--stone)]"><div className="h-full bg-[var(--gold)]" style={{ width: `${hud.boltCharge * 100}%` }} /></div>
